@@ -1,0 +1,47 @@
+name: Bug Report
+description: File a bug report or issue with Antigravity Bridge
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please ensure you've checked `antigravity-bridge status` before submitting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Provide a clear description of what went wrong.
+    validations:
+      required: true
+  - type: input
+    id: command-run
+    attributes:
+      label: Command or Action
+      description: The exact command you ran (e.g. `antigravity-bridge setup --agent hermes`)
+      placeholder: antigravity-bridge setup
+    validations:
+      required: true
+  - type: textarea
+    id: status-output
+    attributes:
+      label: Diagnostics Output
+      description: Output of `antigravity-bridge status` or relevant logs.
+      render: shell
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Operating System
+      options:
+        - Ubuntu / Debian Linux
+        - Other Linux
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      placeholder: Python 3.11.2
+    validations:
+      required: true

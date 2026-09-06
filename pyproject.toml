@@ -7,11 +7,48 @@ name = "antigravity-bridge"
 version = "1.0.0"
 description = "Connect OpenClaw and Hermes to Google Antigravity OAuth session via local OpenAI proxy"
 readme = "README.md"
-authors = [{ name = "Antigravity Bridge Contributors" }]
-license = { text = "MIT" }
 requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Samir Sawarkar", email = "samirsawarkars@gmail.com" }
+]
+keywords = [
+    "antigravity",
+    "google-antigravity",
+    "gemini",
+    "claude",
+    "openclaw",
+    "hermes",
+    "ai-agents",
+    "proxy",
+    "openai-compatible",
+    "oauth",
+    "llm",
+    "cloud-code"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+]
 dependencies = []
-keywords = ["antigravity", "gemini", "openclaw", "hermes", "ai-agent", "proxy", "openai-compatible"]
+
+[project.urls]
+Homepage = "https://github.com/samirsawarkar/antigravity-bridge"
+Documentation = "https://github.com/samirsawarkar/antigravity-bridge#readme"
+Repository = "https://github.com/samirsawarkar/antigravity-bridge.git"
+Issues = "https://github.com/samirsawarkar/antigravity-bridge/issues"
+Changelog = "https://github.com/samirsawarkar/antigravity-bridge/blob/main/CHANGELOG.md"
 
 [project.scripts]
 antigravity-bridge = "antigravity_bridge.cli:main"
