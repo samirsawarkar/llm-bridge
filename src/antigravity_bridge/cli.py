@@ -335,49 +335,52 @@ def cmd_serve(args):
 
 
 def main():
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")), help="Proxy server port (default: 8000)")
+    common_parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="Proxy server host (default: 127.0.0.1)")
+    common_parser.add_argument("--token-file", default=None, help="Path to Antigravity OAuth token file")
+    common_parser.add_argument("--agy-bin", default=None, help="Path to agy binary executable")
+
     parser = argparse.ArgumentParser(
         prog="antigravity-bridge",
         description="Connect OpenClaw and Hermes to Google Antigravity OAuth session via local OpenAI proxy.",
+        parents=[common_parser],
     )
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")), help="Proxy server port (default: 8000)")
-    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="Proxy server host (default: 127.0.0.1)")
-    parser.add_argument("--token-file", default=None, help="Path to Antigravity OAuth token file")
-    parser.add_argument("--agy-bin", default=None, help="Path to agy binary executable")
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Available subcommands")
 
     # setup
-    p_setup = subparsers.add_parser("setup", help="Interactive or automated setup for OpenClaw and Hermes")
+    p_setup = subparsers.add_parser("setup", parents=[common_parser], help="Interactive or automated setup for OpenClaw and Hermes")
     p_setup.add_argument("--agent", choices=["openclaw", "hermes", "both"], help="Agent to configure")
     p_setup.add_argument("--model", default=None, help="Default model name (e.g. gemini-3.8-flash)")
     p_setup.add_argument("--no-test", action="store_true", help="Skip post-setup verification test")
     p_setup.set_defaults(func=cmd_setup)
 
     # auth
-    p_auth = subparsers.add_parser("auth", help="Verify or refresh Antigravity OAuth credentials")
+    p_auth = subparsers.add_parser("auth", parents=[common_parser], help="Verify or refresh Antigravity OAuth credentials")
     p_auth.set_defaults(func=cmd_auth)
 
     # status
-    p_status = subparsers.add_parser("status", help="Show health status of auth, proxy, and agents")
+    p_status = subparsers.add_parser("status", parents=[common_parser], help="Show health status of auth, proxy, and agents")
     p_status.set_defaults(func=cmd_status)
 
     # models
-    p_models = subparsers.add_parser("models", help="List available models or switch active model")
+    p_models = subparsers.add_parser("models", parents=[common_parser], help="List available models or switch active model")
     p_models.add_argument("--set", dest="set", help="Set active model ID")
     p_models.add_argument("--agent", choices=["openclaw", "hermes", "both"], default="both", help="Target agent to update")
     p_models.set_defaults(func=cmd_models)
 
     # serve
-    p_serve = subparsers.add_parser("serve", help="Run the proxy server in the foreground")
+    p_serve = subparsers.add_parser("serve", parents=[common_parser], help="Run the proxy server in the foreground")
     p_serve.set_defaults(func=cmd_serve)
 
     # service
-    p_service = subparsers.add_parser("service", help="Manage background systemd service")
+    p_service = subparsers.add_parser("service", parents=[common_parser], help="Manage background systemd service")
     p_service.add_argument("action", choices=["start", "stop", "restart", "status", "install", "uninstall"])
     p_service.set_defaults(func=cmd_service)
 
     # test
-    p_test = subparsers.add_parser("test", help="Run a verification test turn against proxy and agents")
+    p_test = subparsers.add_parser("test", parents=[common_parser], help="Run a verification test turn against proxy and agents")
     p_test.add_argument("--agent", choices=["openclaw", "hermes", "both"], default="both", help="Target agent to test")
     p_test.add_argument("--prompt", default=None, help="Prompt text to send")
     p_test.set_defaults(func=cmd_test)
