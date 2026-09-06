@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antigravity-bridge"
+version = "1.0.0"
+description = "Connect OpenClaw and Hermes to Google Antigravity OAuth session via local OpenAI proxy"
+readme = "README.md"
+authors = [{ name = "Antigravity Bridge Contributors" }]
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = []
+keywords = ["antigravity", "gemini", "openclaw", "hermes", "ai-agent", "proxy", "openai-compatible"]
+
+[project.scripts]
+antigravity-bridge = "antigravity_bridge.cli:main"
+agy-bridge = "antigravity_bridge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
