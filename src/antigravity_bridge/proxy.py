@@ -183,13 +183,32 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(resp).encode())
 
+    def send_json_error(self, code: int, message: str, error_type: str = "api_error"):
+        """Send a standard, RFC-compliant OpenAI JSON error response."""
+        safe_status = " ".join(message.replace("\r", " ").replace("\n", " ").split())[:60]
+        try:
+            self.send_response(code, safe_status)
+        except Exception:
+            self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        err_payload = {
+            "error": {
+                "message": message,
+                "type": error_type,
+                "code": code,
+            }
+        }
+        self.wfile.write(json.dumps(err_payload).encode("utf-8"))
+
     def handle_chat_completions(self):
         content_len = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_len)
         try:
             req_json = json.loads(post_data.decode("utf-8"))
         except Exception as e:
-            self.send_error(400, f"Invalid JSON: {e}")
+            self.send_json_error(400, f"Invalid JSON: {e}", "invalid_request_error")
             return
 
         requested_model = req_json.get("model")
@@ -216,10 +235,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         token = get_auth_token(self.token_file, self.agy_bin)
         if not token:
-            self.send_error(500, "Failed to obtain Antigravity OAuth token")
+            self.send_json_error(500, "Failed to obtain Antigravity OAuth token", "authentication_error")
             return
 
-        def send_upstream(tok: str):
+        def send_upstream(tok: str, custom_payload: bytes = None):
             r = urllib.request.Request(
                 API_ENDPOINT,
                 headers={
@@ -227,10 +246,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     "Content-Type": "application/json",
                     "User-Agent": "Antigravity-CLI/1.1.27",
                 },
-                data=body_bytes,
+                data=custom_payload if custom_payload is not None else body_bytes,
             )
             return urllib.request.urlopen(r, timeout=180)
 
+        upstream_resp = None
         try:
             upstream_resp = send_upstream(token)
         except urllib.error.HTTPError as e:
@@ -238,20 +258,48 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 print(f"[PROXY] HTTP {e.code} received. Forcing token refresh...", flush=True)
                 token = get_auth_token(self.token_file, self.agy_bin, force_refresh=True)
                 if not token:
-                    self.send_error(502, "Failed to refresh Antigravity token")
+                    self.send_json_error(502, "Failed to refresh Antigravity token", "authentication_error")
                     return
                 try:
                     upstream_resp = send_upstream(token)
                 except Exception as e2:
-                    self.send_error(502, f"Upstream error after refresh: {e2}")
+                    self.send_json_error(502, f"Upstream error after refresh: {e2}", "upstream_error")
+                    return
+            elif e.code in (429, 503) and model_name != "gemini-3.8-flash-tiered":
+                print(f"[PROXY] Upstream HTTP {e.code} on {model_name} (quota/capacity). Attempting transparent fallback to gemini-3.8-flash-tiered...", flush=True)
+                fb_dict = dict(body_dict)
+                fb_dict["model"] = "gemini-3.8-flash-tiered"
+                fb_bytes = json.dumps(fb_dict).encode("utf-8")
+                try:
+                    upstream_resp = send_upstream(token, fb_bytes)
+                    model_name = "gemini-3.8-flash-tiered"
+                    print(f"[PROXY] Transparent fallback to gemini-3.8-flash-tiered succeeded!", flush=True)
+                except Exception as fb_err:
+                    print(f"[PROXY] Fallback also failed: {fb_err}", flush=True)
+                    err_body = e.read().decode("utf-8", errors="replace")[:1000]
+                    user_msg = f"Upstream HTTP {e.code}"
+                    try:
+                        p = json.loads(err_body)
+                        if "error" in p and "message" in p["error"]:
+                            user_msg = p["error"]["message"]
+                    except Exception:
+                        user_msg = " ".join(err_body.split())[:200]
+                    self.send_json_error(e.code, user_msg, error_type="insufficient_quota" if e.code == 429 else "upstream_error")
                     return
             else:
                 err_body = e.read().decode("utf-8", errors="replace")[:1000]
                 print(f"[PROXY] Upstream HTTP {e.code} for model {model_name} (req: {requested_model}): {err_body}", flush=True)
-                self.send_error(e.code, f"Upstream error: {err_body}")
+                user_msg = f"Upstream HTTP {e.code}"
+                try:
+                    p = json.loads(err_body)
+                    if "error" in p and "message" in p["error"]:
+                        user_msg = p["error"]["message"]
+                except Exception:
+                    user_msg = " ".join(err_body.split())[:200]
+                self.send_json_error(e.code, user_msg, error_type="insufficient_quota" if e.code == 429 else "upstream_error")
                 return
         except Exception as e:
-            self.send_error(502, f"Upstream connection error: {e}")
+            self.send_json_error(502, f"Upstream connection error: {e}", "upstream_error")
             return
 
         req_id = f"chatcmpl-{int(time.time())}"
