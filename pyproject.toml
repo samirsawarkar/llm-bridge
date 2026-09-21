@@ -3,29 +3,16 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "antigravity-bridge"
-version = "1.0.0"
-description = "Connect OpenClaw and Hermes to Google Antigravity OAuth session via local OpenAI proxy"
+name = "llm-bridge"
+version = "2.0.0"
+description = "Local OpenRouter-style API over your Antigravity, Claude Code and Codex OAuth sessions"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
     { name = "Samir Sawarkar", email = "samirsawarkars@gmail.com" }
 ]
-keywords = [
-    "antigravity",
-    "google-antigravity",
-    "gemini",
-    "claude",
-    "openclaw",
-    "hermes",
-    "ai-agents",
-    "proxy",
-    "openai-compatible",
-    "oauth",
-    "llm",
-    "cloud-code"
-]
+keywords = ["llm", "proxy", "openai-compatible", "anthropic", "codex", "antigravity", "gemini", "claude", "oauth", "gateway"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -44,15 +31,15 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/samirsawarkar/antigravity-bridge"
-Documentation = "https://github.com/samirsawarkar/antigravity-bridge#readme"
-Repository = "https://github.com/samirsawarkar/antigravity-bridge.git"
-Issues = "https://github.com/samirsawarkar/antigravity-bridge/issues"
-Changelog = "https://github.com/samirsawarkar/antigravity-bridge/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/samirsawarkar/llm-bridge"
+Documentation = "https://github.com/samirsawarkar/llm-bridge#readme"
+Repository = "https://github.com/samirsawarkar/llm-bridge.git"
+Issues = "https://github.com/samirsawarkar/llm-bridge/issues"
+Changelog = "https://github.com/samirsawarkar/llm-bridge/blob/main/CHANGELOG.md"
 
 [project.scripts]
-antigravity-bridge = "antigravity_bridge.cli:main"
-agy-bridge = "antigravity_bridge.cli:main"
+llm-bridge = "llm_bridge.cli:main"
+lbr = "llm_bridge.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

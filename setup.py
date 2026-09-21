@@ -2,18 +2,18 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="antigravity-bridge",
-    version="1.0.0",
-    description="Connect OpenClaw and Hermes to Google Antigravity OAuth session via local OpenAI proxy",
+    name="llm-bridge",
+    version="2.0.0",
+    description="Local OpenRouter-style API over your Antigravity, Claude Code and Codex OAuth sessions",
     long_description=open("README.md", encoding="utf-8").read() if open("README.md").readable() else "",
     long_description_content_type="text/markdown",
     author="Samir Sawarkar",
     author_email="samirsawarkars@gmail.com",
-    url="https://github.com/samirsawarkar/antigravity-bridge",
+    url="https://github.com/samirsawarkar/llm-bridge",
     project_urls={
-        "Documentation": "https://github.com/samirsawarkar/antigravity-bridge#readme",
-        "Source": "https://github.com/samirsawarkar/antigravity-bridge.git",
-        "Tracker": "https://github.com/samirsawarkar/antigravity-bridge/issues",
+        "Documentation": "https://github.com/samirsawarkar/llm-bridge#readme",
+        "Source": "https://github.com/samirsawarkar/llm-bridge.git",
+        "Tracker": "https://github.com/samirsawarkar/llm-bridge/issues",
     },
     license="MIT",
     package_dir={"": "src"},
@@ -22,8 +22,8 @@ setup(
     install_requires=[],
     entry_points={
         "console_scripts": [
-            "antigravity-bridge=antigravity_bridge.cli:main",
-            "agy-bridge=antigravity_bridge.cli:main",
+            "llm-bridge=llm_bridge.cli:main",
+            "lbr=llm_bridge.cli:main",
         ],
     },
     classifiers=[
