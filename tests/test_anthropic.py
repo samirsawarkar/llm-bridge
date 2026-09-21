@@ -56,6 +56,14 @@ class TestAnthropic(unittest.TestCase):
         p._raw = lambda: (None, None)
         self.assertIsNone(p._load())
 
+    def test_pick_prefers_source_with_token(self):
+        empty = {"claudeAiOauth": {"accessToken": "", "refreshToken": ""}}
+        real = {"claudeAiOauth": {"accessToken": "A", "refreshToken": "R"}}
+        self.assertEqual(an._pick([(empty, "keychain"), (real, "file")]), (real, "file"))  # skip empty keychain
+        self.assertEqual(an._pick([(real, "keychain"), (empty, "file")])[1], "keychain")   # first with token wins
+        self.assertEqual(an._pick([(empty, "keychain")]), (empty, "keychain"))             # fallback to only source
+        self.assertEqual(an._pick([]), (None, None))
+
 
 if __name__ == "__main__":
     unittest.main()

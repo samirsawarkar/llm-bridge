@@ -13,8 +13,8 @@ The endpoints and client ids below are the CLIs' public values at the time of wr
 
 ## anthropic (Claude Code)
 
-- Credentials: `~/.claude/.credentials.json` → `claudeAiOauth`; on macOS the Keychain item `Claude Code-credentials` (read/written with `security`).
-- Refresh: `console.anthropic.com/v1/oauth/token`, client id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`.
+- Credentials: `~/.claude/.credentials.json` → `claudeAiOauth`, or the macOS Keychain item `Claude Code-credentials`. Which one holds the live token varies by Claude Code version (the other may exist with empty placeholders), so the bridge reads both and uses whichever has a token; write-back goes to that same source.
+- Refresh: `api.anthropic.com/v1/oauth/token` (needs a `User-Agent`, else Cloudflare returns 403/1010), client id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`. The refresh token is single-use and rotates; the bridge writes the new one back. Because Claude Code and the bridge share this one rotating token via the same store, a refresh by one can invalidate the other's copy if they run at the exact same moment.
 - Upstream: `api.anthropic.com/v1/messages` with `anthropic-beta: oauth-2025-04-20`.
 - Quirks: OAuth tokens are only honoured when the first system block is `You are Claude Code, Anthropic's official CLI for Claude.` — the bridge prepends it if missing (also on passthrough). Images in user messages are dropped in translated requests (native `/v1/messages` passthrough keeps them). Thinking deltas are forwarded as `reasoning_content` (Chat) / thinking blocks (Messages).
 

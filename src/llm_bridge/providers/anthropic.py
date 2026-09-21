@@ -12,7 +12,7 @@ from .base import Provider, UpstreamError, http, open_upstream, sse
 
 # Verify against the installed CLI if anything 401s: these are Claude Code's public OAuth client + endpoints.
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+TOKEN_URL = "https://api.anthropic.com/v1/oauth/token"
 API_URL = "https://api.anthropic.com/v1/messages"
 CRED_FILE = os.path.expanduser("~/.claude/.credentials.json")
 KEYCHAIN_SERVICE = "Claude Code-credentials"
@@ -37,19 +37,22 @@ class Anthropic(Provider):
     aliases = {"claude-opus": "claude-opus-5", "claude-sonnet": "claude-sonnet-5", "claude-haiku": "claude-haiku-4-5-20251001"}
 
     def _raw(self):
-        """-> (json_dict, source) where source is "keychain" or a file path."""
+        """-> (json_dict, source). Prefer whichever store actually holds a token; keychain and file
+        can both exist and either may be the empty/placeholder one (varies by Claude Code version)."""
+        sources = []
         if sys.platform == "darwin":
             try:
                 r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"], capture_output=True, text=True, timeout=5)
                 if r.returncode == 0 and r.stdout.strip():
-                    return json.loads(r.stdout.strip()), "keychain"
+                    sources.append((json.loads(r.stdout.strip()), "keychain"))
             except Exception:
                 pass
         try:
             with open(CRED_FILE, encoding="utf-8") as f:
-                return json.load(f), CRED_FILE
+                sources.append((json.load(f), CRED_FILE))
         except (OSError, ValueError):
-            return None, None
+            pass
+        return _pick(sources)
 
     def _load(self):
         data, src = self._raw()
@@ -62,7 +65,7 @@ class Anthropic(Provider):
         if not cred.get("refresh"):
             return None
         try:
-            with http(TOKEN_URL, {"grant_type": "refresh_token", "refresh_token": cred["refresh"], "client_id": CLIENT_ID}, {}, timeout=20) as r:
+            with http(TOKEN_URL, {"grant_type": "refresh_token", "refresh_token": cred["refresh"], "client_id": CLIENT_ID}, {"User-Agent": "claude-cli/2.0.0 (external, cli)"}, timeout=20) as r:
                 res = json.load(r)
         except Exception:
             return None
@@ -118,6 +121,18 @@ class Anthropic(Provider):
     def passthrough(self, body, headers, model):
         body = ensure_identity(dict(body, model=model))
         return open_upstream(self, lambda tok: http(API_URL, body, self._headers(tok, headers)))
+
+
+
+def _pick(sources):
+    """From [(data, src), ...] choose the first with a non-empty accessToken, else the first that parsed."""
+    fallback = (None, None)
+    for data, src in sources:
+        if isinstance(data, dict):
+            if (data.get("claudeAiOauth") or {}).get("accessToken"):
+                return data, src
+            fallback = (data, src)
+    return fallback
 
 
 def ensure_identity(body):
