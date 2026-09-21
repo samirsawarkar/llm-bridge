@@ -1,6 +1,6 @@
-# Contributing to Antigravity Bridge
+# Contributing to LLM Bridge
 
-Thank you for your interest in contributing to **Antigravity Bridge**! We welcome bug reports, improvements, documentation, and feature requests.
+Thank you for your interest in contributing to **LLM Bridge**! We welcome bug reports, improvements, documentation, and feature requests.
 
 ## Design Philosophy
 
@@ -19,8 +19,8 @@ Before submitting a change, keep our core architectural principles in mind:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/samirsawarkar/antigravity-bridge.git
-   cd antigravity-bridge
+   git clone https://github.com/samirsawarkar/llm-bridge.git
+   cd llm-bridge
    ```
 
 2. **Install in editable mode:**
@@ -30,7 +30,7 @@ Before submitting a change, keep our core architectural principles in mind:
 
 3. **Verify CLI availability:**
    ```bash
-   antigravity-bridge --help
+   llm-bridge --help
    ```
 
 ---
@@ -77,4 +77,4 @@ Every pull request must pass 100% of unit tests. When adding new features or add
 
 ## Questions & Discussions
 
-Have questions? Feel free to open a [GitHub Discussion](https://github.com/samirsawarkar/antigravity-bridge/discussions) or submit an issue on the [Issue Tracker](https://github.com/samirsawarkar/antigravity-bridge/issues).
+Have questions? Feel free to open a [GitHub Discussion](https://github.com/samirsawarkar/llm-bridge/discussions) or submit an issue on the [Issue Tracker](https://github.com/samirsawarkar/llm-bridge/issues).

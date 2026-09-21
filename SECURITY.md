@@ -10,7 +10,7 @@
 
 ## Security Architecture & Threat Model
 
-Antigravity Bridge is designed with security-first defaults:
+LLM Bridge is designed with security-first defaults:
 
 1. **Loopback Only:**
    The proxy server binds exclusively to `127.0.0.1` (localhost) by default. It is not exposed to public network interfaces.
@@ -23,7 +23,7 @@ Antigravity Bridge is designed with security-first defaults:
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within Antigravity Bridge, please **do NOT open a public GitHub issue**.
+If you discover a security vulnerability within LLM Bridge, please **do NOT open a public GitHub issue**.
 
 Instead, please send a report directly to:
 **samirsawarkars@gmail.com**

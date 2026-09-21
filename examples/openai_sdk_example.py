@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example: Using the official openai Python library with Antigravity Bridge.
+"""Example: Using the official openai Python library with LLM Bridge.
 
 Requirements:
     pip install openai
@@ -19,25 +19,23 @@ except ImportError:
 
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="antigravity",  # Any non-empty string is accepted
+    api_key=os.environ["LLM_BRIDGE_KEY"],  # from `llm-bridge keys create`
 )
 
 def main():
     print("=== 1. Non-streaming Chat Completion ===")
     response = client.chat.completions.create(
-        model="gemini-3.8-flash",
+        model="anthropic/claude-sonnet-5",
         messages=[
             {"role": "system", "content": "You are an expert AI assistant."},
-            {"role": "user", "content": "Explain Antigravity Bridge in two sentences."}
+            {"role": "user", "content": "Explain LLM Bridge in two sentences."}
         ],
     )
-    print(f"Response:
-{response.choices[0].message.content}
-")
+    print(f"Response:\n{response.choices[0].message.content}\n")
 
     print("=== 2. Streaming Chat Completion ===")
     stream = client.chat.completions.create(
-        model="claude-sonnet-4-6",
+        model="anthropic/claude-sonnet-5",
         messages=[
             {"role": "user", "content": "Count from 1 to 5 with short words."}
         ],
@@ -46,8 +44,7 @@ def main():
     for chunk in stream:
         delta = chunk.choices[0].delta.content or ""
         print(delta, end="", flush=True)
-    print("
-")
+    print("\n")
 
 if __name__ == "__main__":
     main()

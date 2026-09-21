@@ -36,5 +36,5 @@ jobs:
 
     - name: Test CLI executable invocation
       run: |
-        antigravity-bridge --help
-        agy-bridge --help
+        llm-bridge --help
+        lbr --version

@@ -1,41 +1,25 @@
-# Supported Models & Upstream Aliasing
+# Models & routing
 
-Antigravity Bridge exposes top-tier frontier models from Google Antigravity via a standard OpenAI-compatible API.
+Model ids are `provider/model`. `GET /v1/models` and `llm-bridge models` list them; a model is listed only when its provider is authenticated. Catalogs are static seeds — `llm-bridge test <model>` is the real probe.
 
----
+## Routing precedence
 
-## Model Catalog
+1. `provider/model` — explicit; unknown provider → 400.
+2. Bare name matching a provider prefix: `claude-*` → anthropic; `gpt-*`, `o1*`, `o3*`, `o4*`, `codex*` → openai; `gemini-*` → antigravity. Prefix sets are disjoint (tested).
+3. `default_provider` from `~/.llm-bridge/config.json` or `LLM_BRIDGE_DEFAULT_PROVIDER`.
+4. 400 `model_not_found`.
 
-| Model ID | Display Name | Recommended Use Case |
-| :--- | :--- | :--- |
-| `gemini-3.8-flash` | Gemini 3.8 Flash | Ultra-fast agent loops, CRM tasks, automated mentions |
-| `claude-sonnet-4-6` | Claude Sonnet 4.6 | High-level code architecture, complex reasoning, diffs |
-| `gemini-2.5-pro` | Gemini 2.5 Pro | Deep multi-turn context, multi-tool workflows |
-| `gemini-2.5-flash` | Gemini 2.5 Flash | High-throughput subagents, background jobs |
-| `gemini-3.1-pro-high` | Gemini 3.1 Pro (High) | Heavy reasoning benchmarks |
-| `gemini-3.6-flash-high`| Gemini 3.6 Flash (High)| High-concurrency agent workflows |
-| `claude-opus-4-6-thinking` | Claude Opus 4.6 (Thinking) | Extended thinking agent tasks |
+No substring guessing. `gpt-oss-120b-medium` lives on antigravity and must be written `antigravity/gpt-oss-120b-medium`.
 
----
+## Aliases (resolved inside the provider)
 
-## Upstream Model Mapping & Aliasing
-
-Google Cloud Code backend uses internal identifiers that differ from common model strings. Antigravity Bridge dynamically maps client requests:
-
-- `gemini-3.8-flash` -> `gemini-3.8-flash-tiered`
-- `gemini-3.8-flash-high` -> `gemini-3.8-flash-tiered`
-- `gemini-3.7-flash` -> `gemini-3.7-flash-tiered`
-- `gemini-3.7-flash-tiered` -> `gemini-3.7-flash-tiered`
-- `claude-sonnet-4-6` -> `claude-sonnet-4-6`
-
-If a client sends an unmapped identifier, the bridge passes it directly upstream to preserve future model support.
-
----
-
-## Gemini Protobuf Schema Compatibility
-
-Google Gemini Cloud Code API enforces strict protobuf schema parsing:
-- Keyword `$schema` is rejected -> stripped by bridge.
-- Keyword `additionalProperties` is rejected -> stripped by bridge.
-- Keyword `title` is rejected -> stripped by bridge.
-- Arrays must have a dictionary `items` property -> normalized by bridge.
+| Provider | Alias | Upstream |
+|---|---|---|
+| antigravity | `gemini-3.8-flash`, `-high`, `-medium`, `-low` | `gemini-3.8-flash-tiered` |
+| antigravity | `gemini-3.7-flash`, `-high` | `gemini-3.7-flash-tiered` |
+| antigravity | `gemini-3.6-flash` | `gemini-3.6-flash-high` |
+| antigravity | `gemini-3.1-pro` | `gemini-3.1-pro-high` |
+| antigravity | `gemini-pro` / `gemini-flash` | `gemini-2.5-pro` / `gemini-2.5-flash` |
+| antigravity | `claude-sonnet` / `claude-opus` | `claude-sonnet-4-6` / `claude-opus-4-6-thinking` |
+| anthropic | `claude-opus` / `claude-sonnet` / `claude-haiku` | `claude-opus-5` / `claude-sonnet-5` / `claude-haiku-4-5-20251001` |
+| openai | `codex` | `gpt-5-codex` |

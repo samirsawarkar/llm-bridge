@@ -1,0 +1,26 @@
+# Providers
+
+All three reuse the CLI's own login. The bridge reads the CLI's credential store, refreshes through the provider's OAuth endpoint when the access token is within 60s of expiry, and writes the new tokens back so the CLI stays logged in. Refresh tokens rotate on anthropic and openai, so each provider holds a lock around re-read → refresh → write-back.
+
+The endpoints and client ids below are the CLIs' public values at the time of writing and are the most likely thing to drift. If a provider 401s after refresh, compare against the installed CLI.
+
+## antigravity (`agy`)
+
+- Credentials: first of `~/.openclaw/agents/main/agent/auth-profiles.json`, `~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.gemini/jetski-standalone-oauth-token`, `~/.gemini/oauth_token.json`; override with `ANTIGRAVITY_TOKEN_FILE`.
+- Refresh: `oauth2.googleapis.com/token`; falls back to running `agy models`.
+- Upstream: `cloudcode-pa.googleapis.com/v1internal:streamGenerateContent` (+ two fallbacks on 429/503).
+- Quirks: tool schemas are stripped to what Cloud Code's protobuf accepts (`$schema`, `title`, `additionalProperties`, `anyOf` collapsed); thought signatures are cached per tool call; a 429/503 on any model transparently retries on `gemini-3.8-flash-tiered` and reports that model in the response. `ANTIGRAVITY_PROJECT_ID` overrides the project.
+
+## anthropic (Claude Code)
+
+- Credentials: `~/.claude/.credentials.json` → `claudeAiOauth`; on macOS the Keychain item `Claude Code-credentials` (read/written with `security`).
+- Refresh: `console.anthropic.com/v1/oauth/token`, client id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`.
+- Upstream: `api.anthropic.com/v1/messages` with `anthropic-beta: oauth-2025-04-20`.
+- Quirks: OAuth tokens are only honoured when the first system block is `You are Claude Code, Anthropic's official CLI for Claude.` — the bridge prepends it if missing (also on passthrough). Images in user messages are dropped in translated requests (native `/v1/messages` passthrough keeps them). Thinking deltas are forwarded as `reasoning_content` (Chat) / thinking blocks (Messages).
+
+## openai (Codex)
+
+- Credentials: `~/.codex/auth.json` → `tokens.{access_token,refresh_token,id_token,account_id}` (`CODEX_HOME` respected). API-key mode auth files are ignored.
+- Refresh: `auth.openai.com/oauth/token`, client id `app_EMoamEEZ73f0CkXaXp7hrann`. Expiry comes from the access-token JWT.
+- Upstream: `chatgpt.com/backend-api/codex/responses` with `chatgpt-account-id`, `OpenAI-Beta: responses=experimental`, `originator: codex_cli_rs`.
+- Quirks: the backend only streams (non-stream requests are collected by the bridge) and rejects sampling params, so `temperature`/`max_tokens` are dropped. `instructions` must be non-empty; a default is supplied.

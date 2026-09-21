@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-09-21
+
+Renamed **antigravity-bridge → llm-bridge**. One local gateway over three CLI OAuth sessions.
+
+### Added
+- Providers `anthropic` (Claude Code OAuth → api.anthropic.com) and `openai` (Codex OAuth → chatgpt.com codex backend), alongside `antigravity`.
+- Inbound `POST /v1/messages` (Anthropic Messages) and `POST /v1/responses` (OpenAI Responses) next to `/v1/chat/completions`; native passthrough when the inbound format matches the provider.
+- API keys: `llm-bridge keys create|list|revoke`, stored in `~/.llm-bridge/keys.json` (0600); `Authorization: Bearer` or `x-api-key`.
+- `llm-bridge up` prints base URL, key (once), provider auth state and model ids.
+- launchd service on macOS (`service install`); systemd user unit on Linux (system unit when root).
+- `llm-bridge models` reports per-provider auth state; `llm-bridge test [model]` does a live round-trip.
+- Explicit routing: `provider/model` → bare-name prefix → `default_provider` → 400.
+
+### Changed
+- `setup` wizard replaced by `up` + optional `connect hermes|openclaw`.
+- Streaming and non-streaming share one event pipeline; usage reported on both.
+- Thinking deltas forwarded (`reasoning_content` in Chat, thinking blocks in Messages).
+
+### Removed
+- Fuzzy substring model matching; only explicit alias tables remain.
+- `antigravity-bridge` / `agy-bridge` commands, `systemd/` unit file, `bin/` shims.
+
+### Breaking
+- Package, module and CLI names changed. A Bearer key is now required on every request.
+
 ## [1.0.0] - 2026-09-06
 
 ### Added

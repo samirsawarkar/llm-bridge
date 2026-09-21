@@ -1,47 +1,16 @@
-# OpenClaw Agent Integration Guide
+# OpenClaw Agent
 
-This guide explains how **Antigravity Bridge** connects [OpenClaw Agent](https://openclaw.ai) to Google Antigravity models.
-
----
-
-## Architecture & Credentials
-
-OpenClaw manages its configuration across two files:
-1. **JSON Configuration:** `~/.openclaw/openclaw.json` (Defines models, providers, and gateway settings).
-2. **SQLite Credential Database:** `~/.openclaw/openclaw-agent.sqlite` (Stores agent auth profiles and tokens).
-
-When you run `antigravity-bridge setup --agent openclaw`, the bridge:
-1. Defines the `antigravity` provider in `openclaw.json` with `baseUrl: "http://127.0.0.1:8000/v1"`.
-2. Registers available models under the `antigravity/` namespace (e.g. `antigravity/gemini-3.8-flash`).
-3. Sets the primary agent model to `antigravity/gemini-3.8-flash`.
-4. Injects valid credentials into `openclaw-agent.sqlite` so OpenClaw never prompts for API keys.
-
----
-
-## Verification & Usage
-
-Run an agent turn through the OpenClaw Gateway:
+[OpenClaw](https://openclaw.ai) uses a JSON config plus a SQLite credential store; `connect` writes both.
 
 ```bash
-openclaw agent --message "Say: Antigravity connection verified!"
+llm-bridge connect openclaw --model antigravity/gemini-3.8-flash
+openclaw agent --message "Say hello!"
 ```
 
-Check OpenClaw's running gateway status:
-```bash
-openclaw gateway status
-```
+What it changes (existing `openclaw.json` is backed up first):
 
-Run an end-to-end verification turn via the bridge:
-```bash
-antigravity-bridge test --agent openclaw
-```
+- `models.providers["llm-bridge"]` → `baseUrl: http://127.0.0.1:8000/v1`, `api: openai-completions`, `auth: api-key`, and the current model list from the bridge.
+- `agents.defaults.model.primary` → `llm-bridge/<provider>/<model>`.
+- `auth.profiles["llm-bridge:manual"]` and, in every `~/.openclaw/agents/*/agent/openclaw-agent.sqlite`, an `llm-bridge:manual` API-key profile holding your bridge key.
 
----
-
-## Switching Models for OpenClaw
-
-Change the active model for OpenClaw at any time:
-
-```bash
-antigravity-bridge models --set gemini-3.8-flash --agent openclaw
-```
+Switch models by re-running `connect --model …`. Restart the OpenClaw gateway afterwards if it was running.
