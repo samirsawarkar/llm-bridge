@@ -23,4 +23,5 @@ The endpoints and client ids below are the CLIs' public values at the time of wr
 - Credentials: `~/.codex/auth.json` → `tokens.{access_token,refresh_token,id_token,account_id}` (`CODEX_HOME` respected). API-key mode auth files are ignored.
 - Refresh: `auth.openai.com/oauth/token`, client id `app_EMoamEEZ73f0CkXaXp7hrann`. Expiry comes from the access-token JWT.
 - Upstream: `chatgpt.com/backend-api/codex/responses` with `chatgpt-account-id`, `OpenAI-Beta: responses=experimental`, `originator: codex_cli_rs`.
+- Models: fetched from `chatgpt.com/backend-api/codex/models` per account (cached 10 min) — the allowed set differs by plan and changes often; `codex`'s own default model may not be in it.
 - Quirks: the backend only streams (non-stream requests are collected by the bridge) and rejects sampling params, so `temperature`/`max_tokens` are dropped. `instructions` must be non-empty; a default is supplied.

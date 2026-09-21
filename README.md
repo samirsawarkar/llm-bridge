@@ -7,7 +7,7 @@
 
 Your `agy`, `claude` and `codex` logins → one local OpenAI-compatible API with your own keys. Nothing leaves your machine.
 
-Point any app at `http://127.0.0.1:8000/v1`, pick a model like `anthropic/claude-sonnet-5` or `openai/gpt-5-codex` or `antigravity/gemini-3.8-flash`, done. Works like OpenRouter, runs on localhost, speaks OpenAI Chat Completions, Anthropic Messages and OpenAI Responses.
+Point any app at `http://127.0.0.1:8000/v1`, pick a model like `anthropic/claude-sonnet-5` or `openai/gpt-5.5` or `antigravity/gemini-3.8-flash`, done. Works like OpenRouter, runs on localhost, speaks OpenAI Chat Completions, Anthropic Messages and OpenAI Responses.
 
 > Using subscription OAuth tokens from third-party clients may violate Anthropic's and OpenAI's terms of service. Your account, your call.
 
@@ -45,7 +45,7 @@ Not logged in somewhere? Run that CLI once (`agy`, `claude`, `codex login`) and 
 | curl / any HTTP | `Authorization: Bearer <key>` or `x-api-key: <key>` |
 | OpenAI SDK | `OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="<key>")` |
 | Anthropic SDK | `Anthropic(base_url="http://127.0.0.1:8000", api_key="<key>")` |
-| Claude Code on another model | `ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_API_KEY=<key> claude --model openai/gpt-5-codex` |
+| Claude Code on another model | `ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_API_KEY=<key> claude --model openai/gpt-5.5` |
 | Cursor / Cline / Continue / Open WebUI | OpenAI-compatible provider, base URL `http://127.0.0.1:8000/v1`, key `<key>` |
 | Hermes / OpenClaw | `llm-bridge connect hermes` / `llm-bridge connect openclaw` |
 
@@ -57,7 +57,7 @@ Examples in [`examples/`](examples).
 |---|---|---|---|
 | `antigravity` | `agy` | `~/.gemini/antigravity-cli/…` (or OpenClaw auth-profiles) | Gemini 3.x/2.5, Claude via Antigravity, GPT-OSS |
 | `anthropic` | `claude` → `/login` | `~/.claude/.credentials.json` (macOS: Keychain) | Claude 5 family, 4.6 |
-| `openai` | `codex login` | `~/.codex/auth.json` | GPT-5 Codex, GPT-5, mini |
+| `openai` | `codex login` | `~/.codex/auth.json` | whatever your ChatGPT plan allows (fetched live, e.g. gpt-5.5, gpt-5.6-terra) |
 
 Tokens are refreshed through each provider's own OAuth endpoint and written back, so the CLI stays logged in too. Details and quirks in [docs/providers.md](docs/providers.md).
 
@@ -69,7 +69,7 @@ Tokens are refreshed through each provider's own OAuth endpoint and written back
 explicit provider/model  →  known prefix  →  config default_provider  →  400
 ```
 
-No fuzzy guessing. Per-provider aliases (`claude-sonnet`, `gemini-3.8-flash` → `-tiered`, `codex`) are listed in [docs/models.md](docs/models.md). Set a default with `~/.llm-bridge/config.json` `{"default_provider": "anthropic"}` or `LLM_BRIDGE_DEFAULT_PROVIDER`.
+No fuzzy guessing. Per-provider aliases (`claude-sonnet`, `gemini-3.8-flash` → `-tiered`) are listed in [docs/models.md](docs/models.md). Set a default with `~/.llm-bridge/config.json` `{"default_provider": "anthropic"}` or `LLM_BRIDGE_DEFAULT_PROVIDER`.
 
 ## Endpoints
 

@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import time
+import urllib.request
 from datetime import datetime, timezone
 
 from ..ir import text_of
@@ -11,6 +13,7 @@ from .base import Provider, UpstreamError, http, open_upstream, sse
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 API_URL = "https://chatgpt.com/backend-api/codex/responses"
+MODELS_URL = "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0"
 AUTH_FILE = os.path.expanduser(os.environ.get("CODEX_HOME", "~/.codex") + "/auth.json")
 
 
@@ -27,13 +30,26 @@ class OpenAI(Provider):
     native_fmt = "responses"
     prefixes = ("gpt-", "o1", "o3", "o4", "codex")
     login_hint = "run: codex login"
-    catalog = [
-        {"id": "gpt-5-codex", "name": "GPT-5 Codex"},
-        {"id": "gpt-5", "name": "GPT-5"},
-        {"id": "gpt-5-mini", "name": "GPT-5 Mini"},
-        {"id": "codex-mini-latest", "name": "Codex Mini"},
-    ]
-    aliases = {"codex": "gpt-5-codex"}
+    SEED = [{"id": "gpt-5.5", "name": "GPT-5.5"}]  # only used until the backend answers
+    _catalog, _catalog_at = None, 0.0
+
+    @property
+    def catalog(self):
+        """The set of models a ChatGPT account may use changes; ask the backend (cached 10 min)."""
+        if time.time() - self._catalog_at > 600:
+            self._catalog_at = time.time()
+            tok = self.token()
+            if tok:
+                try:
+                    h = self._headers(tok)
+                    h.pop("Accept", None)
+                    with urllib.request.urlopen(urllib.request.Request(MODELS_URL, headers=h), timeout=15) as r:
+                        ms = json.load(r).get("models") or []
+                    ids = [m.get("slug") or m.get("id") for m in ms if isinstance(m, dict)]
+                    self._catalog = [{"id": i, "name": i} for i in ids if i] or self._catalog
+                except Exception:
+                    pass
+        return self._catalog or self.SEED
 
     def _raw(self):
         try:

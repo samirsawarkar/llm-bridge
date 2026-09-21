@@ -2,6 +2,7 @@
 import getpass
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -70,12 +71,26 @@ class Anthropic(Provider):
         o["refreshToken"] = res.get("refresh_token") or cred["refresh"]
         o["expiresAt"] = int((time.time() + res.get("expires_in", 3600)) * 1000)
         self._save(cred["_data"], cred["_src"])
-        return self._load()
+        new = self._load()
+        if not new or new["access"] != res["access_token"]:  # refresh tokens rotate: a lost write-back logs the CLI out
+            print("[anthropic] WARNING: refreshed token did not persist to %s; run `claude` and /login if the CLI stops working" % cred["_src"], flush=True)
+        return new
+
+    def _keychain_account(self):
+        """Account name of the existing keychain item, so the write-back updates it instead of creating a twin."""
+        try:
+            r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE], capture_output=True, text=True, timeout=5)
+            m = re.search(r'"acct"<blob>="([^"]*)"', r.stdout)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+        return getpass.getuser()
 
     def _save(self, data, src):
         blob = json.dumps(data)
         if src == "keychain":  # same mechanism Claude Code itself uses; token is briefly visible in `ps`
-            subprocess.run(["security", "add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", getpass.getuser(), "-w", blob], capture_output=True, timeout=5)
+            subprocess.run(["security", "add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", self._keychain_account(), "-w", blob], capture_output=True, timeout=5)
         else:
             tmp = src + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:

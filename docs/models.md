@@ -1,6 +1,6 @@
 # Models & routing
 
-Model ids are `provider/model`. `GET /v1/models` and `llm-bridge models` list them; a model is listed only when its provider is authenticated. Catalogs are static seeds — `llm-bridge test <model>` is the real probe.
+Model ids are `provider/model`. `GET /v1/models` and `llm-bridge models` list them; a model is listed only when its provider is authenticated. Antigravity and Anthropic catalogs are static seeds; the OpenAI catalog is fetched from the Codex backend for your account — `llm-bridge test <model>` is the real probe.
 
 ## Routing precedence
 
@@ -22,4 +22,3 @@ No substring guessing. `gpt-oss-120b-medium` lives on antigravity and must be wr
 | antigravity | `gemini-pro` / `gemini-flash` | `gemini-2.5-pro` / `gemini-2.5-flash` |
 | antigravity | `claude-sonnet` / `claude-opus` | `claude-sonnet-4-6` / `claude-opus-4-6-thinking` |
 | anthropic | `claude-opus` / `claude-sonnet` / `claude-haiku` | `claude-opus-5` / `claude-sonnet-5` / `claude-haiku-4-5-20251001` |
-| openai | `codex` | `gpt-5-codex` |

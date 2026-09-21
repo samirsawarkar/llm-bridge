@@ -9,8 +9,8 @@ class TestRouter(unittest.TestCase):
         self.assertEqual((p.name, m), ("antigravity", "gemini-3.8-flash-tiered"))
         p, m = P.resolve("claude-sonnet")
         self.assertEqual((p.name, m), ("anthropic", "claude-sonnet-5"))
-        p, m = P.resolve("gpt-5-codex")
-        self.assertEqual(p.name, "openai")
+        p, m = P.resolve("gpt-5.5")
+        self.assertEqual((p.name, m), ("openai", "gpt-5.5"))
         p, m = P.resolve("mystery-model", default_provider="openai")
         self.assertEqual((p.name, m), ("openai", "mystery-model"))
         for bad in (None, "", "mystery-model", "nope/x"):

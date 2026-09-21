@@ -14,7 +14,7 @@ class TestOpenAI(unittest.TestCase):
                             {"role": "assistant", "content": "thinking...", "tool_calls": [{"id": "c1", "name": "f", "arguments": "{}"}]},
                             {"role": "tool", "tool_call_id": "c1", "content": "out"}],
                "tools": [{"name": "f", "description": "d", "parameters": None}], "stream": False, "max_tokens": 10, "temperature": 0}
-        b = oa.to_responses(req, "gpt-5-codex")
+        b = oa.to_responses(req, "gpt-5.5")
         self.assertEqual(b["instructions"], "S")
         self.assertEqual([i["type"] for i in b["input"]], ["message", "message", "function_call", "function_call_output"])
         self.assertEqual(b["input"][2]["call_id"], "c1")
@@ -42,6 +42,11 @@ class TestOpenAI(unittest.TestCase):
         self.assertEqual((c["access"], c["refresh"], c["expires_at"], c["account_id"]), (acc, "R", 1900000000, "acct_1"))
         p._raw = lambda: {"OPENAI_API_KEY": "sk-x"}
         self.assertIsNone(p._load())
+
+    def test_catalog_offline_falls_back_to_seed(self):
+        p = oa.OpenAI()
+        p._raw = lambda: None  # not logged in -> no fetch
+        self.assertEqual(p.catalog, oa.OpenAI.SEED)
 
 
 if __name__ == "__main__":
