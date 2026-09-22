@@ -7,7 +7,7 @@ The endpoints and client ids below are the CLIs' public values at the time of wr
 ## antigravity (`agy`)
 
 - Credentials: first of `~/.openclaw/agents/main/agent/auth-profiles.json`, `~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.gemini/jetski-standalone-oauth-token`, `~/.gemini/oauth_token.json`; override with `ANTIGRAVITY_TOKEN_FILE`.
-- Refresh: `oauth2.googleapis.com/token`; falls back to running `agy models`.
+- Refresh: direct via `oauth2.googleapis.com/token` only when `ANTIGRAVITY_CLIENT_ID` and `ANTIGRAVITY_CLIENT_SECRET` are set (the Antigravity CLI's own installed-app credentials, not shipped here); otherwise falls back to running `agy models`, which refreshes its own token file.
 - Upstream: `cloudcode-pa.googleapis.com/v1internal:streamGenerateContent` (+ two fallbacks on 429/503).
 - Quirks: tool schemas are stripped to what Cloud Code's protobuf accepts (`$schema`, `title`, `additionalProperties`, `anyOf` collapsed); thought signatures are cached per tool call; a 429/503 on any model transparently retries on `gemini-3.8-flash-tiered` and reports that model in the response. `ANTIGRAVITY_PROJECT_ID` overrides the project.
 

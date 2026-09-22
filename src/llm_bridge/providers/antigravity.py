@@ -19,8 +19,8 @@ TOKEN_PATHS = [
     os.path.expanduser("~/.gemini/oauth_token.json"),
     "/root/.gemini/antigravity-cli/antigravity-oauth-token",
 ]
-CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID", "<ANTIGRAVITY_CLIENT_ID env>")
-CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "<ANTIGRAVITY_CLIENT_SECRET env>")
+CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "")
 PROJECT_ID = os.environ.get("ANTIGRAVITY_PROJECT_ID", "rising-fact-p41fc")
 ENDPOINTS = [
     "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
@@ -114,7 +114,7 @@ class Antigravity(Provider):
         return cred
 
     def _refresh(self, cred):
-        if cred.get("refresh"):
+        if cred.get("refresh") and CLIENT_ID and CLIENT_SECRET:  # direct Google OAuth refresh; without creds we fall back to `agy`
             try:
                 body = urllib.parse.urlencode({"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
                                                "refresh_token": cred["refresh"], "grant_type": "refresh_token"}).encode()
