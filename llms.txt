@@ -1,0 +1,30 @@
+# llm-bridge
+
+> A local, zero-dependency, OpenAI-compatible API gateway over your CLI OAuth sessions. It turns the logins of the `agy` (Google Antigravity), `claude` (Claude Code) and `codex` (OpenAI Codex) command-line tools into one endpoint with your own generated API keys — like a self-hosted OpenRouter that runs entirely on localhost. Speaks OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses; routes models by a `provider/model` name; refreshes and reuses each CLI's OAuth token automatically. Python 3.8+ standard library only.
+
+Use it by running `llm-bridge up`, which prints a base URL (`http://127.0.0.1:8000/v1`) and an API key, then point any OpenAI/Anthropic-compatible app or agent at it.
+
+## Docs
+
+- [README](README.md): overview, quickstart, clients, endpoints, commands, architecture
+- [Quickstart](docs/quickstart.md): install and first request in three commands
+- [Providers](docs/providers.md): per-provider OAuth flow, endpoints, and quirks (antigravity, anthropic, openai)
+- [Models & routing](docs/models.md): `provider/model` naming, routing precedence, alias tables
+- [AGENTS.md](AGENTS.md): how AI agents use the bridge as a backend and contribute to the repo
+- [Hermes integration](docs/hermes.md)
+- [OpenClaw integration](docs/openclaw.md)
+
+## Key facts
+
+- Base URLs: `http://127.0.0.1:8000/v1` (OpenAI-style), `http://127.0.0.1:8000` (Anthropic SDK)
+- Auth: `Authorization: Bearer <key>` or `x-api-key: <key>`; keys via `llm-bridge keys create`
+- Endpoints: `POST /v1/chat/completions`, `POST /v1/messages`, `POST /v1/responses`, `GET /v1/models`, `GET /health`
+- Model names: `anthropic/claude-sonnet-5`, `openai/gpt-5.5`, `antigravity/gemini-3.8-flash`
+- Install: `pipx install .` or `pip install .` (Python 3.8+, no runtime dependencies)
+- License: MIT
+
+## Optional
+
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)

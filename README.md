@@ -131,7 +131,7 @@ llm-bridge test anthropic/claude-sonnet-5   # live
 
 ## Docs
 
-[Quickstart](docs/quickstart.md) · [Providers](docs/providers.md) · [Models & routing](docs/models.md) · [Hermes](docs/hermes.md) · [OpenClaw](docs/openclaw.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Quickstart](docs/quickstart.md) · [Providers](docs/providers.md) · [Models & routing](docs/models.md) · [AGENTS.md](AGENTS.md) · [Hermes](docs/hermes.md) · [OpenClaw](docs/openclaw.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## License
 
