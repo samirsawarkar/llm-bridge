@@ -4,11 +4,39 @@ All three reuse the CLI's own login. The bridge reads the CLI's credential store
 
 The endpoints and client ids below are the CLIs' public values at the time of writing and are the most likely thing to drift. If a provider 401s after refresh, compare against the installed CLI.
 
+`llm-bridge accounts list` displays all saved AGY accounts and each provider's
+current CLI login, including email and display name when available. Matching
+saved and current AGY logins are shown once. Identity comes from local profile
+fields or token claims, only for display; missing identities remain unknown.
+No token is refreshed and no upstream request is made. Local credential status
+does not establish whether the provider accepts the login or has quota left.
+Use `accounts label <name> --email <email> --display-name <name>` to label an
+older saved AGY account. Only AGY currently supports named saved logins.
+
 ## antigravity (`agy`)
+
+- Named logins: `llm-bridge accounts add <name>` snapshots the current AGY login,
+  or use `--token-file` for an explicit import. Each account has a private token
+  file and its own optional `--project-id`. `accounts use <name>` selects the
+  default; `antigravity@<name>/<model>` selects one account explicitly. There is
+  no fixed account cap. Authentication files are refreshed atomically under a
+  cross-process lock. A named account never falls back to another CLI's login.
+  The active AGY CLI login remains unchanged. See the README for setup and
+  recovery instructions. No automatic switching between accounts is performed.
+  On macOS, account import and inventory prefer AGY 1.3.1's Keychain item
+  (service `gemini`, account `antigravity`) over legacy CLI token files. Both
+  plain JSON and Go Keyring's base64 wrapper are supported. Explicit token-file
+  overrides take precedence; the Keychain is read only.
 
 - Credentials: first of `~/.openclaw/agents/main/agent/auth-profiles.json`, `~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.gemini/jetski-standalone-oauth-token`, `~/.gemini/oauth_token.json`; override with `ANTIGRAVITY_TOKEN_FILE`.
 - Refresh: direct via `oauth2.googleapis.com/token` only when `ANTIGRAVITY_CLIENT_ID` and `ANTIGRAVITY_CLIENT_SECRET` are set (the Antigravity CLI's own installed-app credentials, not shipped here); otherwise falls back to running `agy models`, which refreshes its own token file.
 - Upstream: `cloudcode-pa.googleapis.com/v1internal:streamGenerateContent` (+ two fallbacks on 429/503).
+- Pro High: the catalog's `gemini-3.1-pro-high` id is translated to the working
+  Pro tier generation route `gemini-3.1-pro-low` with
+  `generationConfig.thinkingConfig.thinkingBudget=10001` and
+  `includeThoughts=true`, matching the High catalog entry's thinking budget.
+  The direct High id returns invalid-argument errors on the tested daily
+  endpoints. Both routes and catalog metadata were checked on 2026-10-08.
 - Quirks: tool schemas are stripped to what Cloud Code's protobuf accepts (`$schema`, `title`, `additionalProperties`, `anyOf` collapsed); thought signatures are cached per tool call; a 429/503 on any model transparently retries on `gemini-3.8-flash-tiered` and reports that model in the response. `ANTIGRAVITY_PROJECT_ID` overrides the project.
 
 ## anthropic (Claude Code)

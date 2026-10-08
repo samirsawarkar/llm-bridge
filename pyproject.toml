@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "llm-bridge"
 version = "2.0.0"
-description = "Local OpenRouter-style API over your Antigravity, Claude Code and Codex OAuth sessions"
+description = "Local OpenAI-compatible LLM gateway for multi-account Gemini/Antigravity, Claude Code and Codex CLI logins"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
     { name = "Samir Sawarkar", email = "samirsawarkars@gmail.com" }
 ]
-keywords = ["llm", "proxy", "openai-compatible", "anthropic", "codex", "antigravity", "gemini", "claude", "oauth", "gateway"]
+keywords = ["llm", "proxy", "openai-compatible", "anthropic", "codex", "antigravity", "gemini", "claude", "oauth", "gateway", "multi-account", "pi-agent", "cli", "self-hosted"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",

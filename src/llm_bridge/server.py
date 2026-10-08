@@ -50,7 +50,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._send(401, openai_chat.encode_error(401, "invalid API key (llm-bridge keys list)", "authentication_error"))
         if path in ("/v1/models", "/models"):
-            return self._send(200, json.dumps({"object": "list", "data": providers.list_models()}).encode())
+            try:
+                models = providers.list_models()
+            except ValueError:
+                return self._send(503, openai_chat.encode_error(503, "account configuration is unreadable; repair accounts.json", "configuration_error"))
+            return self._send(200, json.dumps({"object": "list", "data": models}).encode())
         if path.startswith("/v1/models/"):
             return self._send(200, json.dumps({"id": path[len("/v1/models/"):], "object": "model", "created": int(time.time()), "owned_by": "llm-bridge"}).encode())
         self._send(404, openai_chat.encode_error(404, "not found", "invalid_request_error"))

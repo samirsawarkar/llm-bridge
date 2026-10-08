@@ -2,6 +2,7 @@ import os, sys, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 from llm_bridge.providers import antigravity as ag
 from llm_bridge.providers.base import sse
+from unittest.mock import patch
 
 
 class TestTransform(unittest.TestCase):
@@ -42,6 +43,27 @@ class TestTransform(unittest.TestCase):
 
 
 class TestProvider(unittest.TestCase):
+    def test_pro_high_uses_generation_route_with_high_thinking_budget(self):
+        p = ag.Antigravity(project_id="test-project")
+        with patch.object(p, "token", return_value="test-token"), patch.object(ag, "http", return_value=iter([b'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}\n'])) as send:
+            events = list(p.stream({"messages": [{"role": "user", "content": "hi"}]}, "gemini-3.1-pro-high"))
+        body = send.call_args[0][1]
+        self.assertEqual(body["model"], "gemini-3.1-pro-low")
+        self.assertEqual(body["request"]["generationConfig"]["thinkingConfig"],
+                         {"thinkingBudget": 10001, "includeThoughts": True})
+        self.assertEqual(body["project"], "test-project")
+        self.assertIn(("text", "ok"), events)
+        self.assertEqual(send.call_count, 1)  # Successful Pro request, no Flash fallback.
+
+    def test_other_models_do_not_receive_pro_high_settings(self):
+        p = ag.Antigravity()
+        for model in ("gemini-3.1-pro-low", "gemini-3.8-flash-tiered"):
+            with patch.object(p, "token", return_value="test-token"), patch.object(ag, "http", return_value=iter([])) as send:
+                list(p.stream({"messages": [{"role": "user", "content": "hi"}]}, model))
+            body = send.call_args[0][1]
+            self.assertEqual(body["model"], model)
+            self.assertNotIn("generationConfig", body["request"])
+
     def test_aliases_explicit_only(self):
         p = ag.Antigravity()
         self.assertEqual(p.upstream_model("gemini-3.8-flash"), "gemini-3.8-flash-tiered")

@@ -1,2 +1,5 @@
 #!/usr/bin/env bash
+BRIDGE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$BRIDGE_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
 exec python3 -m llm_bridge.cli "$@"

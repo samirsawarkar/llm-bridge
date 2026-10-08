@@ -5,7 +5,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from . import __version__, providers, service, store
+from . import __version__, accounts, identity, providers, service, store
 from .connect.hermes import configure_hermes, get_hermes_status
 from .connect.openclaw import configure_openclaw, get_openclaw_status
 from .server import serve
@@ -33,6 +33,7 @@ def banner(host, port, new_key=None):
     print()
     print("Providers")
     for p in providers.PROVIDERS.values():
+        p = providers.get_provider(p.name)
         st = p.auth_status()
         mark = OK if st["ok"] else BAD
         print("  %-12s %s %-16s %s" % (p.name, mark, st["state"], "" if st["ok"] else "→ " + st["fix"]))
@@ -79,6 +80,7 @@ def cmd_models(a):
     print("%-40s %-34s %s" % ("Model", "Name", "Status"))
     print("-" * 90)
     for p in providers.PROVIDERS.values():
+        p = providers.get_provider(p.name)
         st = p.auth_status()
         status = (OK + " available") if st["ok"] else ("%s %s → %s" % (BAD, st["state"], st["fix"]))
         for m in p.catalog:
@@ -97,6 +99,7 @@ def cmd_status(a):
     print("Keys         %d (llm-bridge keys list)" % len(store.load_keys()))
     print("Service      %s" % (service.ctl("status")[1] if service.installed() else "not installed (llm-bridge service install)"))
     for p in providers.PROVIDERS.values():
+        p = providers.get_provider(p.name)
         st = p.auth_status()
         print("%-12s %s %s %s" % (p.name, OK if st["ok"] else BAD, st["state"], "" if st["ok"] else "→ " + st["fix"]))
     h, o = get_hermes_status(), get_openclaw_status()
@@ -154,6 +157,37 @@ def cmd_connect(a):
     return 0 if ok else 1
 
 
+def cmd_accounts(a):
+    if a.action == "add":
+        details = accounts.add(a.name, a.token_file, a.project_id, email=a.email, display_name=a.display_name)
+        print("[%s] saved account %s (%s); its login is kept separately from your CLI" %
+              (OK, a.name, details["email"] or "email unknown"))
+    elif a.action == "use":
+        accounts.use(a.name)
+        print("[%s] default antigravity account: %s" % (OK, a.name))
+    elif a.action == "remove":
+        accounts.remove(a.name)
+        print("[%s] removed saved account %s; the original CLI login is unchanged" % (OK, a.name))
+    elif a.action == "label":
+        accounts.label(a.name, a.email, a.display_name)
+        print("[%s] updated identity label for %s" % (OK, a.name))
+    elif a.action == "list":
+        rows = accounts.inventory()
+        names = {"antigravity": "AGY", "openai": "Codex", "anthropic": "Claude"}
+        table = [["Provider", "Account", "Email", "Name", "Default", "Status", "Source"]]
+        table += [[names[r["provider"]], r["name"], identity.email(r["email"]) or "unknown",
+                   identity.clean(r["display_name"]) or "—", "*" if r["default"] else "",
+                   r["status"], r["source"]] for r in rows]
+        widths = [max(len(row[i]) for row in table) for i in range(len(table[0]))]
+        for row in table:
+            print("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip())
+        print("\n* Default per provider. CLI rows show the current login; saved rows are kept by the bridge.")
+        print("Status checks local credentials, not provider access or quota. No tokens are refreshed.")
+        if any(r["source"] == "saved" and not r["email"] for r in rows):
+            print("Unknown saved email? Run: llm-bridge accounts label <name> --email <email>")
+    return 0
+
+
 def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--host", default=None, help="bind host (default: config or 127.0.0.1)")
@@ -179,10 +213,33 @@ def main():
     c.add_argument("client", choices=["hermes", "openclaw"])
     c.add_argument("--model", default="antigravity/gemini-3.8-flash")
     c.set_defaults(func=cmd_connect)
+    ac = sub.add_parser("accounts", help="show CLI account identities and manage saved AGY logins")
+    actions = ac.add_subparsers(dest="action", required=True)
+    add = actions.add_parser("add", help="save the current AGY login or an explicit token file")
+    add.add_argument("name", help="unique account name")
+    add.add_argument("--token-file", help="AGY OAuth file to import (default: current CLI login)")
+    add.add_argument("--project-id", help="Google project for this account (default: imported value or current bridge project)")
+    add.add_argument("--email", help="email label when the login has no email metadata")
+    add.add_argument("--display-name", help="optional display name")
+    label = actions.add_parser("label", help="set email/name labels for an existing saved account")
+    label.add_argument("name")
+    label.add_argument("--email")
+    label.add_argument("--display-name")
+    for action in ("use", "remove"):
+        actions.add_parser(action).add_argument("name")
+    actions.add_parser("list")
+    ac.set_defaults(func=cmd_accounts)
     a = p.parse_args()
-    if not a.cmd:
-        return cmd_status(a)
-    return a.func(a) or 0
+    try:
+        if not a.cmd:
+            return cmd_status(a)
+        return a.func(a) or 0
+    except ValueError as e:
+        print("[%s] %s" % (BAD, e), file=sys.stderr)
+        return 1
+    except OSError:
+        print("[%s] cannot access bridge files; check paths and write permissions" % BAD, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

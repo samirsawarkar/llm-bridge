@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents and coding tools working with **llm-bridge** — a local, OpenAI-compatible gateway that exposes your `agy` (Google Antigravity), `claude` (Claude Code) and `codex` (OpenAI Codex) CLI OAuth sessions as one API with your own keys. Everything runs on `localhost`; nothing leaves the machine.
+Guidance for AI agents and coding tools working with **llm-bridge** — a local, OpenAI-compatible gateway that exposes your `agy` (Google Antigravity), `claude` (Claude Code) and `codex` (OpenAI Codex) CLI OAuth sessions as one API with your own keys. The gateway runs on `localhost`; inference requests are sent to the selected provider’s cloud service.
 
 ## Use llm-bridge as your model backend
 
@@ -22,6 +22,24 @@ client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="<key>")
 client.chat.completions.create(model="anthropic/claude-sonnet-5",
                                messages=[{"role": "user", "content": "hi"}])
 ```
+
+### Multiple Google accounts and identity inventory
+
+```bash
+llm-bridge accounts add work     # save AGY’s current login after signing in
+llm-bridge accounts list         # provider, label, email/name, local status
+llm-bridge accounts use work     # default for unqualified AGY requests
+llm-bridge test antigravity@work/gemini-3.8-flash
+```
+
+AGY 1.3.1 macOS Keychain imports are detected automatically. Existing snapshots
+remain separate when AGY signs into the next account. Named accounts currently
+support AGY only; Codex/Claude inventory shows their current CLI login. Listing
+never refreshes tokens or checks quota. Direct named-account refresh requires
+`ANTIGRAVITY_CLIENT_ID` and `ANTIGRAVITY_CLIENT_SECRET` from the installed CLI’s
+OAuth application; never commit credentials. Account selection is explicit,
+with no automatic switching on quota errors. See [all commands](docs/commands.md),
+[Pi](docs/pi.md), and [troubleshooting](docs/troubleshooting.md).
 
 ### Endpoints
 

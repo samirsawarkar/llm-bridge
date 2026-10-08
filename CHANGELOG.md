@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Full CLI command guide, Pi custom-provider setup, LAN instructions, update
+  commands, and account/Keychain/Pro troubleshooting. Search-oriented README,
+  package metadata and llms.txt document the supported providers and limits.
+- Account inventory with emails, display names, provider, default, source, and
+  local credential status for saved AGY accounts and current AGY/Codex/Claude
+  logins. Optional identity labels on account add and the new accounts label
+  command; listing never refreshes credentials or calls upstream providers.
+- Multiple named AGY accounts, with independent private credential files and
+  per-account Google projects. Add/list/select/remove accounts from the CLI;
+  select a specific account with `antigravity@name/model`. No fixed account cap
+  and no account rotation on quota errors.
+- Tests for concurrent use, account isolation, token refresh, secure storage,
+  and account routing through all three HTTP formats.
+
+### Fixed
+- Gemini 3.1 Pro High generation uses the accepted Pro tier route with the
+  High catalog entry's thinking budget, avoiding the direct High id's 400.
+- Account-add confirmations include the saved email; duplicate-login errors
+  identify the saved label. Tests cover switching between three Keychain logins.
+- AGY 1.3.1 account import and listing detect the macOS Keychain login when
+  legacy token files are absent; explicit token-file overrides still win.
+- Source launcher finds its own package from any working directory.
+- AGY expiry parsing preserves time-zone offsets and accepts `expiry_date`.
+- Test discovery isolates bridge data before importing modules.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

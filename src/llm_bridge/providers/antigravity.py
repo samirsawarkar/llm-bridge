@@ -1,5 +1,6 @@
 """Google Antigravity (agy) provider: OAuth token file + Cloud Code streamGenerateContent."""
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from ..ir import text_of
+from ..accounts import atomic_json, file_lock
 from .base import Provider, UpstreamError, http, open_upstream
 
 TOKEN_PATHS = [
@@ -67,13 +69,27 @@ def _parse(data):
     expires_at = 0.0
     if exp_s:
         try:
-            expires_at = datetime.fromisoformat(str(exp_s).split(".")[0].replace("Z", "")).replace(tzinfo=timezone.utc).timestamp()
+            stamp = datetime.fromisoformat(str(exp_s).replace("Z", "+00:00"))
+            expires_at = (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp()
         except ValueError:
             pass
+    elif tok.get("expiry_date") is not None:
+        expires_at = float(tok["expiry_date"]) / 1000.0
     return {"access": tok.get("access_token"), "refresh": tok.get("refresh_token"), "expires_at": expires_at}
 
 
 class Antigravity(Provider):
+    def __init__(self, token_file=None, project_id=None):
+        super().__init__()
+        self.token_file = token_file
+        self.project_id = project_id or PROJECT_ID
+
+    def token(self, force_refresh=False):
+        if self.token_file:
+            with file_lock(self.token_file + ".lock"):
+                return super().token(force_refresh)
+        return super().token(force_refresh)
+
     name = "antigravity"
     prefixes = ("gemini-",)
     login_hint = "run: agy   (log in with Google)"
@@ -83,6 +99,7 @@ class Antigravity(Provider):
         {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash"},
         {"id": "gemini-3.6-flash-high", "name": "Gemini 3.6 Flash (High)"},
         {"id": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)"},
+        {"id": "gemini-3.1-pro-low", "name": "Gemini 3.1 Pro (Low)"},
         {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
         {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"},
         {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (via Antigravity)"},
@@ -99,7 +116,7 @@ class Antigravity(Provider):
     }
 
     def _load(self):
-        path = token_path()
+        path = self.token_file or token_path()
         if not path:
             return None
         try:
@@ -107,8 +124,13 @@ class Antigravity(Provider):
                 data = json.load(f)
         except (OSError, ValueError):
             return None
-        cred = _parse(data)
+        try:
+            cred = _parse(data)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return None
         if not cred.get("access"):
+            return None
+        if not isinstance(cred["access"], str) or not math.isfinite(cred["expires_at"]):
             return None
         cred["_data"], cred["_path"] = data, path
         return cred
@@ -132,11 +154,12 @@ class Antigravity(Provider):
                     tok["access_token"], tok["expiry"] = res["access_token"], exp.isoformat()
                     if res.get("refresh_token"):
                         tok["refresh_token"] = res["refresh_token"]
-                with open(cred["_path"], "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2)
+                atomic_json(cred["_path"], data)
                 return self._load()
             except Exception:
                 pass
+        if self.token_file:
+            return None  # A named account must never refresh through an unrelated CLI login.
         b = agy_bin()  # fallback: let agy refresh its own file
         if b:
             try:
@@ -148,12 +171,18 @@ class Antigravity(Provider):
     def stream(self, request, model):
         sys_inst, contents = transform_messages(request["messages"])
         req = {"contents": contents}
+        # The generation endpoint accepts the Pro tier route, not the catalog's
+        # high display id. Keep Pro High's advertised 10001-token thinking budget.
+        upstream_model = model
+        if model == "gemini-3.1-pro-high":
+            upstream_model = "gemini-3.1-pro-low"
+            req["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 10001, "includeThoughts": True}}
         if sys_inst:
             req["systemInstruction"] = sys_inst
         decls = transform_tools(request.get("tools"))
         if decls:
             req["tools"] = decls
-        body = {"project": PROJECT_ID, "model": model, "request": req, "requestType": "agent",
+        body = {"project": self.project_id, "model": upstream_model, "request": req, "requestType": "agent",
                 "userAgent": "antigravity", "requestId": "agent-%d" % int(time.time() * 1000)}
 
         def send(tok):
