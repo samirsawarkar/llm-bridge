@@ -33,6 +33,30 @@ class TestAccounts(unittest.TestCase):
         providers._named_account.cache_clear()
         self.addCleanup(providers._named_account.cache_clear)
 
+    def test_file_lock_excludes_second_holder(self):
+        path = os.path.join(self.home, "accounts.lock")
+        held, release, second_in = threading.Event(), threading.Event(), threading.Event()
+
+        def first():
+            with accounts.file_lock(path):
+                held.set()
+                release.wait(5)
+
+        def second():
+            with accounts.file_lock(path):
+                second_in.set()
+
+        a = threading.Thread(target=first)
+        a.start()
+        self.assertTrue(held.wait(5))
+        b = threading.Thread(target=second)
+        b.start()
+        self.assertFalse(second_in.wait(0.3))  # blocked while the first holder has the lock
+        release.set()
+        self.assertTrue(second_in.wait(5))
+        a.join(5)
+        b.join(5)
+
     def source(self, name, expiry="2099-01-01T00:00:00+00:00"):
         path = os.path.join(self.home, "source-" + name + ".json")
         with open(path, "w") as f:
@@ -67,9 +91,10 @@ class TestAccounts(unittest.TestCase):
     def test_snapshot_is_private_and_cli_changes_do_not_replace_saved_login(self):
         source = self.add("personal")
         saved = accounts.token_file("personal")
-        for path in (saved, accounts._path()):
-            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(saved)).st_mode), 0o700)
+        if os.name != "nt":  # Windows has no POSIX mode bits; files inherit the user-profile ACL
+            for path in (saved, accounts._path()):
+                self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(saved)).st_mode), 0o700)
         with open(source, "w") as f:
             f.write('{}')
         p, _ = providers.resolve("antigravity@personal/gemini-2.5-pro")

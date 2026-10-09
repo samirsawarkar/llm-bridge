@@ -1,5 +1,9 @@
 """Named Antigravity accounts. Credentials stay local; mutations are atomic."""
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 import base64
 import hashlib
 import json
@@ -15,16 +19,37 @@ from datetime import datetime, timezone
 from . import identity, store
 
 
+def _lock(fd):
+    if fcntl:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return
+    os.lseek(fd, 0, os.SEEK_SET)  # Windows: lock byte 0; LK_LOCK gives up after ~10s, so keep waiting like flock
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            return
+        except OSError:
+            pass
+
+
+def _unlock(fd):
+    if fcntl:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    else:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
 @contextmanager
 def file_lock(path):
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(fd, "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock(lock.fileno())
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            _unlock(lock.fileno())
 
 
 def atomic_json(path, data):
