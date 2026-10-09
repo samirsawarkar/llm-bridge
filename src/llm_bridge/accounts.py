@@ -77,15 +77,53 @@ def _agy_cli_source():
             next((p for p in TOKEN_PATHS if ".gemini/" in p and os.path.isfile(p)), None))
 
 
+def _windows_credential(target):
+    """Blob of a generic credential in Windows Credential Manager, or None if absent."""
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", wintypes.FILETIME),
+                    ("CredentialBlobSize", wintypes.DWORD), ("CredentialBlob", ctypes.POINTER(ctypes.c_char)),
+                    ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
+
+    advapi32 = ctypes.WinDLL("advapi32")
+    advapi32.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                   ctypes.POINTER(ctypes.POINTER(CREDENTIAL))]
+    advapi32.CredReadW.restype = wintypes.BOOL
+    pcred = ctypes.POINTER(CREDENTIAL)()
+    if not advapi32.CredReadW(target, 1, 0, ctypes.byref(pcred)):  # 1 = CRED_TYPE_GENERIC
+        return None
+    try:
+        return ctypes.string_at(pcred.contents.CredentialBlob, pcred.contents.CredentialBlobSize)
+    finally:
+        advapi32.CredFree(pcred)
+
+
+def _keyring_value():
+    """AGY 1.3's go-keyring entry (service "gemini", user "antigravity"), or None.
+    macOS keeps it in the Keychain; Windows in Credential Manager as target "gemini:antigravity"."""
+    if sys.platform == "darwin":
+        result = subprocess.run(
+            ["/usr/bin/security", "find-generic-password", "-s", "gemini",
+             "-a", "antigravity", "-w"], capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() if result.returncode == 0 else None
+    if sys.platform == "win32":
+        blob = _windows_credential("gemini:antigravity")
+        if not blob:
+            return None
+        return (blob.decode("utf-16-le") if b"\x00" in blob else blob.decode("utf-8")).strip()
+    return None
+
+
 def _agy_cli_login():
-    """Read AGY's active login, including 1.3.1's macOS Keychain store."""
-    if sys.platform == "darwin" and not os.environ.get("ANTIGRAVITY_TOKEN_FILE"):
+    """Read AGY's active login, including 1.3's macOS Keychain / Windows Credential Manager store."""
+    if sys.platform in ("darwin", "win32") and not os.environ.get("ANTIGRAVITY_TOKEN_FILE"):
         try:
-            result = subprocess.run(
-                ["/usr/bin/security", "find-generic-password", "-s", "gemini",
-                 "-a", "antigravity", "-w"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                value = result.stdout.strip()
+            value = _keyring_value()
+            if value:
                 if value.startswith("go-keyring-base64:"):
                     value = base64.b64decode(value.split(":", 1)[1], validate=True).decode("utf-8")
                 data = json.loads(value)

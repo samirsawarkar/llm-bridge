@@ -210,6 +210,35 @@ class TestAccounts(unittest.TestCase):
                 self.assertEqual(json.load(f)["access_token"], "keychain-access")
             accounts.remove("keychain-%d" % i)
 
+    def test_windows_credential_manager_login_is_saved(self):
+        raw = {"token": {"access_token": "wincred-access", "refresh_token": "wincred-refresh",
+                         "expiry": "2099-01-01T00:00:00Z"},
+               "email": "win@example.com", "name": "Win User"}
+        value = json.dumps(raw)
+        blobs = (value.encode("utf-8"), value.encode("utf-16-le"),
+                 ("go-keyring-base64:" + base64.b64encode(value.encode()).decode()).encode("utf-8"))
+        for i, blob in enumerate(blobs):
+            with patch.dict(os.environ, {}, clear=True), patch.object(accounts.sys, "platform", "win32"), \
+                 patch.object(accounts, "_windows_credential", return_value=blob) as read:
+                accounts.add("wincred-%d" % i)
+                read.assert_called_once_with("gemini:antigravity")
+            self.assertEqual(accounts.inventory()[0]["email"], "win@example.com")
+            with open(accounts.token_file("wincred-%d" % i)) as f:
+                self.assertEqual(json.load(f)["access_token"], "wincred-access")
+            accounts.remove("wincred-%d" % i)
+
+    def test_missing_windows_credential_falls_back_to_file(self):
+        source = self.source("winfallback")
+        for blob in (None, b"", b"not-json"):
+            with patch.dict(os.environ, {}, clear=True), patch.object(accounts.sys, "platform", "win32"), \
+                 patch.object(accounts, "_windows_credential", return_value=blob), \
+                 patch.object(accounts, "_agy_cli_source", return_value=source):
+                self.assertEqual(accounts._agy_cli_login()["access_token"], "access-winfallback")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows Credential Manager")
+    def test_windows_credential_reader_returns_none_for_absent_target(self):
+        self.assertIsNone(accounts._windows_credential("llm-bridge-test:absent-" + os.urandom(6).hex()))
+
     def test_explicit_login_override_does_not_read_keychain(self):
         with patch.dict(os.environ, {"ANTIGRAVITY_TOKEN_FILE": self.source("override")}), patch.object(accounts.sys, "platform", "darwin"), patch.object(accounts.subprocess, "run") as run:
             accounts.add("override")
