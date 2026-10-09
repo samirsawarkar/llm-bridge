@@ -117,13 +117,22 @@ class Antigravity(Provider):
 
     def _load(self):
         path = self.token_file or token_path()
-        if not path:
-            return None
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            return None
+        if path:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                return None
+        else:
+            # No token file: AGY 1.3 keeps its live login in the macOS Keychain / Windows Credential
+            # Manager. AGY refreshes that itself (see _refresh), so read it fresh each time.
+            from ..accounts import _agy_cli_login
+            try:
+                data = _agy_cli_login()
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                return None
         try:
             cred = _parse(data)
         except (ValueError, TypeError, AttributeError, OverflowError):
@@ -136,7 +145,7 @@ class Antigravity(Provider):
         return cred
 
     def _refresh(self, cred):
-        if cred.get("refresh") and CLIENT_ID and CLIENT_SECRET:  # direct Google OAuth refresh; without creds we fall back to `agy`
+        if cred.get("refresh") and CLIENT_ID and CLIENT_SECRET and cred.get("_path"):  # direct Google OAuth refresh; without creds (or for AGY's keyring login, which AGY owns) we fall back to `agy`
             try:
                 body = urllib.parse.urlencode({"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
                                                "refresh_token": cred["refresh"], "grant_type": "refresh_token"}).encode()

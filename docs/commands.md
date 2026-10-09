@@ -44,6 +44,7 @@ On macOS, AGY 1.3.1's Keychain login is detected automatically; older token file
 remain supported. Named accounts have no fixed count cap. Account names use
 1–64 letters, digits, underscores or hyphens and must start with a letter/digit.
 
+`accounts use current-cli` goes back to AGY's live login (refreshed by AGY itself, so it never goes stale; on Windows and macOS 1.3 it is read from Credential Manager / Keychain).
 `accounts use work` selects the default for `antigravity/model` and bare Gemini
 names. `antigravity@personal/model` explicitly selects another saved login for
 that request. Account additions and default changes do not require a restart.

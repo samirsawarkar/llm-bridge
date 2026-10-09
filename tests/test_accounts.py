@@ -239,6 +239,28 @@ class TestAccounts(unittest.TestCase):
     def test_windows_credential_reader_returns_none_for_absent_target(self):
         self.assertIsNone(accounts._windows_credential("llm-bridge-test:absent-" + os.urandom(6).hex()))
 
+    def test_provider_reads_live_keyring_login_when_no_token_file(self):
+        raw = {"token": {"access_token": "live-access", "refresh_token": "live-refresh",
+                         "expiry": "2099-01-01T00:00:00Z"}}
+        with patch.object(ag, "token_path", return_value=None), \
+             patch.object(accounts, "_agy_cli_login", return_value=raw):
+            cred = ag.Antigravity()._load()
+        self.assertEqual(cred["access"], "live-access")
+        self.assertIsNone(cred["_path"])
+        with patch.object(ag, "token_path", return_value=None), \
+             patch.object(accounts, "_agy_cli_login", return_value=None):
+            self.assertIsNone(ag.Antigravity()._load())
+
+    def test_use_current_cli_restores_the_live_login_as_default(self):
+        self.add("one")
+        self.assertEqual(accounts.load()["default"], "one")
+        accounts.use("current-cli")
+        self.assertIsNone(accounts.load()["default"])
+        self.assertIs(providers.get_provider("antigravity"), providers.PROVIDERS["antigravity"])
+        self.assertIsNot(providers.get_provider("antigravity@one"), providers.PROVIDERS["antigravity"])
+        with self.assertRaises(ValueError):
+            accounts.add("current-cli")
+
     def test_explicit_login_override_does_not_read_keychain(self):
         with patch.dict(os.environ, {"ANTIGRAVITY_TOKEN_FILE": self.source("override")}), patch.object(accounts.sys, "platform", "darwin"), patch.object(accounts.subprocess, "run") as run:
             accounts.add("override")

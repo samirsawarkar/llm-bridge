@@ -147,6 +147,9 @@ def token_file(name):
     return os.path.join(store.DIR, "accounts", name + ".json")
 
 
+CURRENT_CLI = "current-cli"  # the active AGY login, as `accounts list` shows it; not a saved account
+
+
 def _validate_name(name):
     if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", name):
         raise ValueError("account name must be 1–64 letters, digits, underscores or hyphens")
@@ -178,6 +181,8 @@ def add(name, source=None, project_id=None, email=None, display_name=None):
     """Snapshot an explicitly supplied token file, or the current AGY login."""
     from .providers.antigravity import PROJECT_ID, _parse
     _validate_name(name)
+    if name == CURRENT_CLI:
+        raise ValueError("'%s' means the active AGY login; choose another name" % CURRENT_CLI)
     # Prefer the actual AGY CLI store over OpenClaw's possibly older copy.
     try:
         if source:
@@ -334,6 +339,10 @@ def inventory():
 def use(name):
     with file_lock(_path() + ".lock"):
         data = load()
+        if name == CURRENT_CLI:  # back to AGY's live login; saved accounts stay usable as @name
+            data["default"] = None
+            atomic_json(_path(), data)
+            return
         if name not in data["accounts"]:
             raise ValueError("no account named '%s'" % name)
         data["default"] = name
