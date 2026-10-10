@@ -315,14 +315,37 @@ class TestAccounts(unittest.TestCase):
             # Another caller already rotated away from a's email: no double rotation.
             self.assertEqual(accounts.rotate(60, only_if_email="a@example.com"), (None, None))
 
+    def test_quota_is_tracked_per_model_family(self):
+        self.assertEqual(accounts.model_family("antigravity/gemini-3.1-pro-high"), "gemini")
+        self.assertEqual(accounts.model_family("claude-opus-4-6-thinking"), "claude")
+        self.assertEqual(accounts.model_family("gpt-oss-120b-medium"), "gpt-oss")
+        store_ = {"login": self.live_login("a@example.com", "access-a")}
+        with patch.object(accounts, "_agy_cli_login", side_effect=lambda: store_["login"]), \
+             patch.object(accounts, "_write_agy_login", side_effect=lambda raw: store_.update(login=raw)):
+            for n in ("a", "b"):
+                store_["login"] = self.live_login(n + "@example.com", "access-" + n)
+                accounts.add(n)
+            accounts.switch("a")
+            self.assertEqual(accounts.rotate(3600, family="gemini"), ("b", "a"))  # a: Gemini used up
+            # b runs out of Claude: a still has Claude, so it is a valid target despite its Gemini mark.
+            self.assertEqual(accounts.rotate(3600, family="claude"), ("a", "b"))
+            self.assertEqual(accounts.rotate(3600, family="gemini"), ("b", "a"))  # b still has Gemini
+            with self.assertRaises(ValueError) as ctx:
+                accounts.rotate(3600, family="gemini")  # now both are out of Gemini
+            self.assertIn("gemini", str(ctx.exception))
+        self.assertEqual(set(accounts.quota_marks()), {"a@example.com|gemini", "b@example.com|gemini", "b@example.com|claude"})
+
     def test_provider_rotates_active_login_on_quota_and_retries(self):
         p = ag.Antigravity()
         err = UpstreamError(429, "Individual quota reached. Resets in 2h.")
         with patch.object(accounts, "_agy_cli_login", return_value=self.live_login("a@example.com", "x")), \
              patch.object(accounts, "rotate", return_value=("b", "a")) as rot:
-            self.assertTrue(p._rotate_on_quota(err))
-        rot.assert_called_once_with(7200, only_if_email="a@example.com")
+            self.assertTrue(p._rotate_on_quota(err, "gemini-3.8-flash-tiered"))
+        rot.assert_called_once_with(7200, only_if_email="a@example.com", family="gemini")
         self.assertFalse(p._rotate_on_quota(UpstreamError(500, "boom")))
+        with patch.object(accounts, "rotate") as rot:  # Google's short burst limit is not the account quota
+            self.assertFalse(p._rotate_on_quota(UpstreamError(429, "Resource has been exhausted (e.g. check quota)."), "gemini-3.8-flash-tiered"))
+        rot.assert_not_called()
         self.assertFalse(ag.Antigravity(token_file=self.source("named"))._rotate_on_quota(err))  # named = explicit
 
     def test_explicit_login_override_does_not_read_keychain(self):

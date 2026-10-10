@@ -96,7 +96,6 @@ class Antigravity(Provider):
     catalog = [
         {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
         {"id": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)"},
-        {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash"},
         {"id": "gemini-3.6-flash-high", "name": "Gemini 3.6 Flash (High)"},
         {"id": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)"},
         {"id": "gemini-3.1-pro-low", "name": "Gemini 3.1 Pro (Low)"},
@@ -109,7 +108,7 @@ class Antigravity(Provider):
     aliases = {
         "gemini-3.8-flash": "gemini-3.8-flash-tiered", "gemini-3.8-flash-high": "gemini-3.8-flash-tiered",
         "gemini-3.8-flash-medium": "gemini-3.8-flash-tiered", "gemini-3.8-flash-low": "gemini-3.8-flash-tiered",
-        "gemini-3.7-flash": "gemini-3.7-flash-tiered", "gemini-3.7-flash-high": "gemini-3.7-flash-tiered",
+        # Gemini 3.7 Flash: AGY runs it, but Cloud Code answers 404 on every endpoint (2026-10-10), so it is not offered.
         "gemini-3.6-flash": "gemini-3.6-flash-high", "gemini-3.1-pro": "gemini-3.1-pro-high",
         "gemini-3-flash-thinking": "gemini-3-flash", "gemini-pro": "gemini-2.5-pro", "gemini-flash": "gemini-2.5-flash",
         "claude-sonnet": "claude-sonnet-4-6", "claude-opus": "claude-opus-4-6-thinking",
@@ -177,16 +176,20 @@ class Antigravity(Provider):
                 pass
         return self._load()
 
-    def _rotate_on_quota(self, err):
-        """AGY's active login hit its quota: switch AGY to the next saved account. Only for the active
-        login (named accounts are explicit choices). Returns True when a different account is now active."""
+    def _rotate_on_quota(self, err, model=None):
+        """AGY's active login hit its quota for this model's family: switch AGY to the next saved account
+        with that quota left. Only for the active login (named accounts are explicit choices).
+        Returns True when a different account is now active."""
         if self.token_file or err.status != 429:
             return False
         from .. import accounts, identity
+        if not accounts.is_quota_exhausted(err.message):
+            return False  # a short burst limit ("Resource has been exhausted"): retry, never switch accounts
         try:
             live = accounts._agy_cli_login()
             email = identity.extract(live)["email"] if live else None
-            new, old = accounts.rotate(accounts.parse_reset(err.message), only_if_email=email)
+            new, old = accounts.rotate(accounts.parse_reset(err.message), only_if_email=email,
+                                       family=accounts.model_family(model))
         except (ValueError, OSError) as e:
             print("[antigravity] quota reached and no account to rotate to: %s" % e, flush=True)
             return False
@@ -229,7 +232,7 @@ class Antigravity(Provider):
         try:
             resp = open_upstream(self, send)
         except UpstreamError as e:
-            rotated = self._rotate_on_quota(e)
+            rotated = self._rotate_on_quota(e, model)
             if rotated:
                 try:
                     resp = open_upstream(self, send)

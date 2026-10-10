@@ -421,6 +421,16 @@ def parse_reset(text):
     return ((d * 24 + h) * 60 + mi) * 60 + s
 
 
+QUOTA_EXHAUSTED = re.compile(r"quota (?:reached|exceeded)|resets? in\s*\d", re.I)
+
+
+def is_quota_exhausted(message):
+    """True for AGY's account quota ("Individual quota reached ... Resets in 143h15m0s"). Google's generic
+    429 "Resource has been exhausted (e.g. check quota)" is a short burst limit that clears in seconds;
+    rotating on it would bench healthy accounts (seen live 2026-10-10)."""
+    return bool(QUOTA_EXHAUSTED.search(message or ""))
+
+
 def _now():
     return datetime.now(timezone.utc).timestamp()
 
@@ -493,10 +503,30 @@ def switch(name):
         atomic_json(_path(), data)
 
 
-def rotate(exhausted_for=None, only_if_email=None):
-    """The active AGY account is out of quota: mark it until its reset and switch to the next saved
-    account that is not. Returns (new_name, previous_name). With only_if_email, does nothing (returns
-    (None, None)) when another caller already rotated away from that account."""
+def model_family(model):
+    """AGY quota pools: every Gemini model shares one, Claude (Sonnet/Opus) another, GPT-OSS another.
+    Verified live 2026-10-10: an account out of Gemini quota still serves Claude and GPT-OSS."""
+    m = (model or "").lower().split("/")[-1]
+    for family in ("gemini", "claude", "gpt-oss"):
+        if m.startswith(family):
+            return family
+    return m or None
+
+
+def _mark_key(email, family):
+    return "%s|%s" % (email, family) if family else email
+
+
+def _is_marked(marks, email, family):
+    # A bare email marks the whole account (older entries, or a reset with no known model).
+    return email in marks or bool(family) and _mark_key(email, family) in marks
+
+
+def rotate(exhausted_for=None, only_if_email=None, family=None):
+    """The active AGY account is out of quota for `family` (e.g. "gemini"; None = the whole account):
+    mark it until its reset and switch to the next saved account whose quota for that family is not
+    used up. Returns (new_name, previous_name). With only_if_email, does nothing (returns (None, None))
+    when another caller already rotated away from that account."""
     with file_lock(_path() + ".lock"):
         data = load()
         live = _agy_cli_login()
@@ -507,23 +537,24 @@ def rotate(exhausted_for=None, only_if_email=None):
         now = _now()
         marks = {k: v for k, v in data.get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}
         if current:
-            marks[_email_of(data, current)] = now + (exhausted_for or QUOTA_DEFAULT_SECONDS)
+            marks[_mark_key(_email_of(data, current), family)] = now + (exhausted_for or QUOTA_DEFAULT_SECONDS)
         data["exhausted"] = marks
         names = list(data["accounts"])
         start = names.index(current) + 1 if current in names else 0
         order = names[start:] + names[:start]
-        target = next((n for n in order if n != current and _email_of(data, n) not in marks), None)
+        target = next((n for n in order if n != current and not _is_marked(marks, _email_of(data, n), family)), None)
         if target is None:
             atomic_json(_path(), data)
-            nxt = min(marks.values()) if marks else None
-            raise ValueError("every saved AGY account is out of quota%s; add another with `accounts add`"
-                             % ("" if nxt is None else " (first reset %s UTC)" % datetime.fromtimestamp(nxt, timezone.utc).strftime("%Y-%m-%d %H:%M")))
+            relevant = [v for k, v in marks.items() if not family or "|" not in k or k.endswith("|" + family)]
+            nxt = min(relevant) if relevant else None
+            raise ValueError("every saved AGY account is out of %s quota%s; add another with `accounts add`"
+                             % (family or "its", "" if nxt is None else " (first reset %s UTC)" % datetime.fromtimestamp(nxt, timezone.utc).strftime("%Y-%m-%d %H:%M")))
         _switch_locked(data, target)
         atomic_json(_path(), data)
         return target, current
 
 
 def quota_marks():
-    """{email: reset epoch} for saved accounts currently marked out of quota."""
+    """{"email|family" or "email": reset epoch} for saved accounts currently marked out of quota."""
     now = _now()
     return {k: v for k, v in load().get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}
