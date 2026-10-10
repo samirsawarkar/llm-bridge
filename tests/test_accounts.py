@@ -17,6 +17,7 @@ from unittest.mock import patch, Mock
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 from llm_bridge import accounts, cli, providers, server, store
 from llm_bridge.providers import antigravity as ag
+from llm_bridge.providers.base import UpstreamError
 
 
 class TestAccounts(unittest.TestCase):
@@ -260,6 +261,69 @@ class TestAccounts(unittest.TestCase):
         self.assertIsNot(providers.get_provider("antigravity@one"), providers.PROVIDERS["antigravity"])
         with self.assertRaises(ValueError):
             accounts.add("current-cli")
+
+    def live_login(self, email, access):
+        return {"token": {"access_token": access, "token_type": "Bearer", "refresh_token": "r-" + access,
+                          "expiry": "2099-01-01T00:00:00Z"}, "auth_method": "consumer", "email": email}
+
+    def test_parse_reset_reads_provider_text(self):
+        self.assertEqual(accounts.parse_reset("Individual quota reached. Resets in 155h37m38s."), 155 * 3600 + 37 * 60 + 38)
+        self.assertEqual(accounts.parse_reset("resets in 2d 3h"), (2 * 24 + 3) * 3600)
+        self.assertEqual(accounts.parse_reset("Resets in 45m"), 45 * 60)
+        self.assertIsNone(accounts.parse_reset("rate limited"))
+
+    def test_switch_saves_outgoing_login_and_activates_target_in_agy_format(self):
+        store_ = {"login": self.live_login("a@example.com", "access-a")}
+        with patch.object(accounts, "_agy_cli_login", side_effect=lambda: store_["login"]), \
+             patch.object(accounts, "_write_agy_login", side_effect=lambda raw: store_.update(login=raw)):
+            accounts.add("a")
+            store_["login"] = self.live_login("b@example.com", "access-b")
+            accounts.add("b")
+            store_["login"]["token"]["access_token"] = "access-b-refreshed"  # AGY refreshed b since it was saved
+            accounts.switch("a")
+        self.assertEqual(store_["login"]["token"]["access_token"], "access-a")
+        self.assertEqual(store_["login"]["auth_method"], "consumer")
+        with open(accounts.token_file("b")) as f:
+            self.assertEqual(json.load(f)["access_token"], "access-b-refreshed")  # outgoing login kept current
+        self.assertIsNone(accounts.load()["default"])
+
+    def test_switch_auto_saves_an_unsaved_live_login_instead_of_losing_it(self):
+        store_ = {"login": self.live_login("a@example.com", "access-a")}
+        with patch.object(accounts, "_agy_cli_login", side_effect=lambda: store_["login"]), \
+             patch.object(accounts, "_write_agy_login", side_effect=lambda raw: store_.update(login=raw)):
+            accounts.add("a")
+            store_["login"] = self.live_login("new.person@example.com", "access-new")
+            accounts.switch("a")
+        self.assertIn("new-person", accounts.load()["accounts"])
+        with open(accounts.token_file("new-person")) as f:
+            self.assertEqual(json.load(f)["access_token"], "access-new")
+
+    def test_rotate_skips_exhausted_accounts_and_reports_when_all_are_out(self):
+        store_ = {"login": self.live_login("a@example.com", "access-a")}
+        with patch.object(accounts, "_agy_cli_login", side_effect=lambda: store_["login"]), \
+             patch.object(accounts, "_write_agy_login", side_effect=lambda raw: store_.update(login=raw)):
+            for n in ("a", "b", "c"):
+                store_["login"] = self.live_login(n + "@example.com", "access-" + n)
+                accounts.add(n)
+            accounts.switch("a")
+            self.assertEqual(accounts.rotate(3600), ("b", "a"))
+            self.assertEqual(store_["login"]["token"]["access_token"], "access-b")
+            self.assertEqual(accounts.rotate(3600), ("c", "b"))
+            with self.assertRaises(ValueError):
+                accounts.rotate(3600)  # a, b and c are all marked
+            self.assertEqual(set(accounts.quota_marks()), {"a@example.com", "b@example.com", "c@example.com"})
+            # Another caller already rotated away from a's email: no double rotation.
+            self.assertEqual(accounts.rotate(60, only_if_email="a@example.com"), (None, None))
+
+    def test_provider_rotates_active_login_on_quota_and_retries(self):
+        p = ag.Antigravity()
+        err = UpstreamError(429, "Individual quota reached. Resets in 2h.")
+        with patch.object(accounts, "_agy_cli_login", return_value=self.live_login("a@example.com", "x")), \
+             patch.object(accounts, "rotate", return_value=("b", "a")) as rot:
+            self.assertTrue(p._rotate_on_quota(err))
+        rot.assert_called_once_with(7200, only_if_email="a@example.com")
+        self.assertFalse(p._rotate_on_quota(UpstreamError(500, "boom")))
+        self.assertFalse(ag.Antigravity(token_file=self.source("named"))._rotate_on_quota(err))  # named = explicit
 
     def test_explicit_login_override_does_not_read_keychain(self):
         with patch.dict(os.environ, {"ANTIGRAVITY_TOKEN_FILE": self.source("override")}), patch.object(accounts.sys, "platform", "darwin"), patch.object(accounts.subprocess, "run") as run:

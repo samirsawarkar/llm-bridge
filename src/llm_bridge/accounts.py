@@ -142,6 +142,40 @@ def _agy_cli_login():
     return None
 
 
+def _windows_write_credential(target, user, blob):
+    """Create or replace a generic Windows Credential Manager entry (what go-keyring writes)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", wintypes.FILETIME),
+                    ("CredentialBlobSize", wintypes.DWORD), ("CredentialBlob", ctypes.POINTER(ctypes.c_char)),
+                    ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi32.CredWriteW.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
+    advapi32.CredWriteW.restype = wintypes.BOOL
+    buf = ctypes.create_string_buffer(blob, len(blob))
+    cred = CREDENTIAL(Type=1, TargetName=target, UserName=user, CredentialBlobSize=len(blob),
+                      CredentialBlob=ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)), Persist=2)  # 2 = LOCAL_MACHINE
+    if not advapi32.CredWriteW(ctypes.byref(cred), 0):
+        raise OSError("cannot write the AGY login to Credential Manager (error %d)" % ctypes.get_last_error())
+
+
+def _write_agy_login(raw):
+    """Make `raw` AGY's active login, in the store AGY itself reads. AGY refreshes it on use."""
+    value = json.dumps(raw, separators=(",", ":"))
+    if sys.platform == "win32":
+        _windows_write_credential("gemini:antigravity", "antigravity", value.encode("utf-8"))
+    elif sys.platform == "darwin":  # same mechanism AGY uses; the value is briefly visible in `ps`
+        subprocess.run(["/usr/bin/security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity",
+                        "-w", value], check=True, capture_output=True, timeout=5)
+    else:
+        raise ValueError("switching the active AGY login is supported on Windows and macOS")
+
+
 def token_file(name):
     _validate_name(name)
     return os.path.join(store.DIR, "accounts", name + ".json")
@@ -229,6 +263,8 @@ def add(name, source=None, project_id=None, email=None, display_name=None):
             raise ValueError("this AGY login is already saved as '%s'; sign in to the other Google account first" % duplicate)
         path = token_file(name)
         saved = {"access_token": cred["access"], "refresh_token": cred.get("refresh"), "expiry": expiry}
+        if not source and isinstance(raw.get("token"), dict):
+            saved["agy_login"] = raw  # AGY's own login format, so `accounts switch` can restore it exactly
         # Preserve only identity metadata, never unrelated profiles from an import.
         saved.update({k: v for k, v in details.items() if v})
         atomic_json(path, saved)
@@ -326,7 +362,8 @@ def inventory():
         rows.append({"provider": "antigravity", "name": name, "source": "saved",
                      "email": item.get("email") or details["email"],
                      "display_name": item.get("display_name") or details["display_name"],
-                     "default": data.get("default") == name, "status": _credential_status(cred)})
+                     "default": data.get("default") == name or (not data.get("default") and bool(same)),
+                     "status": _credential_status(cred)})
     for provider, info in cli.items():
         if provider in matched:
             continue
@@ -365,3 +402,128 @@ def remove(name):
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+
+
+# --- Switching AGY's active login between saved accounts --------------------------------
+# AGY holds one login at a time. Switching writes a saved account into AGY's own store, where
+# AGY refreshes it itself (no OAuth client settings needed). The outgoing login is always saved
+# first, because refresh tokens can rotate: a stale copy would silently stop working.
+
+QUOTA_DEFAULT_SECONDS = 1800  # when the provider gives no reset time
+
+
+def parse_reset(text):
+    """'... Resets in 155h37m38s.' -> seconds, or None."""
+    m = re.search(r"resets? in\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?", text or "", re.I)
+    if not m or not any(m.groups()):
+        return None
+    d, h, mi, s = (int(g or 0) for g in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
+def _now():
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _email_of(data, name):
+    return (data["accounts"].get(name) or {}).get("email") or name
+
+
+def _store_live(data, raw):
+    """Save AGY's active login into its saved account (by email, else fingerprint); add one if new.
+    Caller holds the accounts lock. Returns the account name."""
+    from .providers.antigravity import PROJECT_ID, _parse
+    cred = _parse(raw)
+    if not cred.get("access"):
+        raise ValueError("the active AGY login has no access token")
+    details = identity.extract(raw)
+    fingerprint = hashlib.sha256((cred.get("refresh") or cred["access"]).encode()).hexdigest()
+    name = next((n for n, a in data["accounts"].items() if details["email"] and a.get("email") == details["email"]), None)
+    name = name or next((n for n, a in data["accounts"].items() if a.get("fingerprint") == fingerprint), None)
+    if name is None:
+        base = re.sub(r"[^a-zA-Z0-9_-]", "-", (details["email"] or "agy").split("@")[0])[:56].strip("-_") or "agy"
+        name, i = base, 2
+        while name in data["accounts"] or name == CURRENT_CLI:
+            name, i = "%s-%d" % (base, i), i + 1
+        data["accounts"][name] = {"project_id": raw.get("project_id") or PROJECT_ID,
+                                  "created": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    entry = data["accounts"][name]
+    entry["fingerprint"] = fingerprint
+    entry.update({k: v for k, v in details.items() if v})
+    saved = {"access_token": cred["access"], "refresh_token": cred.get("refresh"),
+             "expiry": datetime.fromtimestamp(cred["expires_at"], timezone.utc).isoformat(), "agy_login": raw}
+    saved.update({k: v for k, v in details.items() if v})
+    path = token_file(name)
+    with file_lock(path + ".lock"):
+        atomic_json(path, saved)
+    return name
+
+
+def _login_from_saved(saved):
+    """A saved account in AGY's own login format, with the newest tokens the bridge holds."""
+    login = dict(saved.get("agy_login") or {"auth_method": "consumer"})
+    token = dict(login.get("token") or {"token_type": "Bearer"})
+    token.update({"access_token": saved["access_token"], "refresh_token": saved.get("refresh_token"),
+                  "expiry": saved["expiry"]})
+    login["token"] = token
+    return login
+
+
+def _switch_locked(data, name):
+    path = token_file(name)
+    with file_lock(path + ".lock"):
+        with open(path, encoding="utf-8") as f:
+            saved = json.load(f)
+    if not saved.get("access_token"):
+        raise ValueError("saved account '%s' has no AGY token; sign in and add it again" % name)
+    _write_agy_login(_login_from_saved(saved))
+    data["default"] = None  # unqualified requests follow AGY's active login
+
+
+def switch(name):
+    """Make saved account `name` AGY's active login (saving the outgoing login first)."""
+    with file_lock(_path() + ".lock"):
+        data = load()
+        if name not in data["accounts"]:
+            raise ValueError("no account named '%s'" % name)
+        live = _agy_cli_login()
+        if live:
+            _store_live(data, live)
+        _switch_locked(data, name)
+        atomic_json(_path(), data)
+
+
+def rotate(exhausted_for=None, only_if_email=None):
+    """The active AGY account is out of quota: mark it until its reset and switch to the next saved
+    account that is not. Returns (new_name, previous_name). With only_if_email, does nothing (returns
+    (None, None)) when another caller already rotated away from that account."""
+    with file_lock(_path() + ".lock"):
+        data = load()
+        live = _agy_cli_login()
+        current = _store_live(data, live) if live else None
+        if only_if_email and current and _email_of(data, current) != only_if_email:
+            atomic_json(_path(), data)
+            return None, None
+        now = _now()
+        marks = {k: v for k, v in data.get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}
+        if current:
+            marks[_email_of(data, current)] = now + (exhausted_for or QUOTA_DEFAULT_SECONDS)
+        data["exhausted"] = marks
+        names = list(data["accounts"])
+        start = names.index(current) + 1 if current in names else 0
+        order = names[start:] + names[:start]
+        target = next((n for n in order if n != current and _email_of(data, n) not in marks), None)
+        if target is None:
+            atomic_json(_path(), data)
+            nxt = min(marks.values()) if marks else None
+            raise ValueError("every saved AGY account is out of quota%s; add another with `accounts add`"
+                             % ("" if nxt is None else " (first reset %s UTC)" % datetime.fromtimestamp(nxt, timezone.utc).strftime("%Y-%m-%d %H:%M")))
+        _switch_locked(data, target)
+        atomic_json(_path(), data)
+        return target, current
+
+
+def quota_marks():
+    """{email: reset epoch} for saved accounts currently marked out of quota."""
+    now = _now()
+    return {k: v for k, v in load().get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}

@@ -177,6 +177,24 @@ class Antigravity(Provider):
                 pass
         return self._load()
 
+    def _rotate_on_quota(self, err):
+        """AGY's active login hit its quota: switch AGY to the next saved account. Only for the active
+        login (named accounts are explicit choices). Returns True when a different account is now active."""
+        if self.token_file or err.status != 429:
+            return False
+        from .. import accounts, identity
+        try:
+            live = accounts._agy_cli_login()
+            email = identity.extract(live)["email"] if live else None
+            new, old = accounts.rotate(accounts.parse_reset(err.message), only_if_email=email)
+        except (ValueError, OSError) as e:
+            print("[antigravity] quota reached and no account to rotate to: %s" % e, flush=True)
+            return False
+        if new:
+            print("[antigravity] quota reached on '%s'; switched AGY to '%s'" % (old, new), flush=True)
+        self._cred, self._cred_at = None, 0.0  # re-read the new active login
+        return True
+
     def stream(self, request, model):
         sys_inst, contents = transform_messages(request["messages"])
         req = {"contents": contents}
@@ -211,6 +229,16 @@ class Antigravity(Provider):
         try:
             resp = open_upstream(self, send)
         except UpstreamError as e:
+            rotated = self._rotate_on_quota(e)
+            if rotated:
+                try:
+                    resp = open_upstream(self, send)
+                except UpstreamError as e2:
+                    e = e2
+                else:
+                    for ev in events_from_stream(resp):
+                        yield ev
+                    return
             if e.status in (429, 503) and model != FALLBACK_MODEL:  # existing behaviour: transparent quota fallback
                 body["model"] = FALLBACK_MODEL
                 try:
