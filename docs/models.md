@@ -16,7 +16,7 @@ No substring guessing. `gpt-oss-120b-medium` lives on antigravity and must be wr
 | Provider | Alias | Upstream |
 |---|---|---|
 | antigravity | `gemini-3.8-flash`, `-high`, `-medium`, `-low` | `gemini-3.8-flash-tiered` |
-| antigravity | `gemini-3.7-flash`, `-high` | `gemini-3.7-flash-tiered` |
+| antigravity | (Gemini 3.7 Flash not offered: AGY lists it, but Cloud Code returns 404 on every endpoint as of 2026-10-10) | — |
 | antigravity | `gemini-3.6-flash` | `gemini-3.6-flash-high` |
 | antigravity | `gemini-3.1-pro` | `gemini-3.1-pro-high` |
 | antigravity | `gemini-pro` / `gemini-flash` | `gemini-2.5-pro` / `gemini-2.5-flash` |

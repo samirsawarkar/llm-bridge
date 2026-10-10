@@ -9,7 +9,7 @@ PLIST = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % LABEL)
 UNIT_USER = os.path.expanduser("~/.config/systemd/user/llm-bridge.service")
 UNIT_SYSTEM = "/etc/systemd/system/llm-bridge.service"
 MAC = sys.platform == "darwin"
-ROOT = os.geteuid() == 0
+ROOT = hasattr(os, "geteuid") and os.geteuid() == 0  # no geteuid on Windows
 
 
 def _exe():
@@ -21,6 +21,8 @@ def _unit_path():
 
 
 def _systemctl(*args):
+    if not shutil.which("systemctl"):  # e.g. Windows: report instead of raising FileNotFoundError
+        return subprocess.CompletedProcess(args, 1, "", "no systemd or launchd on this system")
     return subprocess.run(["systemctl"] + ([] if ROOT else ["--user"]) + list(args), capture_output=True, text=True)
 
 

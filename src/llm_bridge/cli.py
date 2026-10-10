@@ -2,6 +2,7 @@
 import argparse
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -171,13 +172,30 @@ def cmd_accounts(a):
     elif a.action == "label":
         accounts.label(a.name, a.email, a.display_name)
         print("[%s] updated identity label for %s" % (OK, a.name))
+    elif a.action == "switch":
+        accounts.switch(a.name)
+        print("[%s] AGY now signed in as saved account %s (the previous login was saved first)" % (OK, a.name))
+    elif a.action == "rotate":
+        seconds = accounts.parse_reset(a.reset_in) if a.reset_in else None
+        family = accounts.model_family(a.family) if a.family else None
+        new, old = accounts.rotate(seconds, family=family)
+        print("[%s] %s marked out of %s quota; AGY now signed in as %s" % (OK, old or "active login", family or "all", new))
     elif a.action == "list":
         rows = accounts.inventory()
+        marks = accounts.quota_marks()
         names = {"antigravity": "AGY", "openai": "Codex", "anthropic": "Claude"}
+
+        def status(r):
+            if r["provider"] != "antigravity":
+                return r["status"]
+            out = ["%s out until %s UTC" % (family or "all", time.strftime("%m-%d %H:%M", time.gmtime(until)))
+                   for key, until in sorted(marks.items())
+                   for email, _, family in [key.partition("|")] if email in (r["email"], r["name"])]
+            return "; ".join(out) or r["status"]
         table = [["Provider", "Account", "Email", "Name", "Default", "Status", "Source"]]
         table += [[names[r["provider"]], r["name"], identity.email(r["email"]) or "unknown",
                    identity.clean(r["display_name"]) or "—", "*" if r["default"] else "",
-                   r["status"], r["source"]] for r in rows]
+                   status(r), r["source"]] for r in rows]
         widths = [max(len(row[i]) for row in table) for i in range(len(table[0]))]
         for row in table:
             print("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip())
@@ -227,6 +245,10 @@ def main():
     label.add_argument("--display-name")
     for action in ("use", "remove"):
         actions.add_parser(action).add_argument("name")
+    actions.add_parser("switch", help="sign AGY itself in as a saved account (saves the current login first)").add_argument("name")
+    rot = actions.add_parser("rotate", help="mark the active AGY account out of quota and switch to the next saved one")
+    rot.add_argument("--reset-in", help="provider text such as 'Resets in 155h37m38s' (default: 30 minutes)")
+    rot.add_argument("--family", help="quota pool that ran out: gemini, claude or gpt-oss (or any model id); default: whole account")
     actions.add_parser("list")
     ac.set_defaults(func=cmd_accounts)
     a = p.parse_args()

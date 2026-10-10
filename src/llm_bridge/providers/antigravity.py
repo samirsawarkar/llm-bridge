@@ -96,7 +96,6 @@ class Antigravity(Provider):
     catalog = [
         {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
         {"id": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)"},
-        {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash"},
         {"id": "gemini-3.6-flash-high", "name": "Gemini 3.6 Flash (High)"},
         {"id": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)"},
         {"id": "gemini-3.1-pro-low", "name": "Gemini 3.1 Pro (Low)"},
@@ -109,7 +108,7 @@ class Antigravity(Provider):
     aliases = {
         "gemini-3.8-flash": "gemini-3.8-flash-tiered", "gemini-3.8-flash-high": "gemini-3.8-flash-tiered",
         "gemini-3.8-flash-medium": "gemini-3.8-flash-tiered", "gemini-3.8-flash-low": "gemini-3.8-flash-tiered",
-        "gemini-3.7-flash": "gemini-3.7-flash-tiered", "gemini-3.7-flash-high": "gemini-3.7-flash-tiered",
+        # Gemini 3.7 Flash: AGY runs it, but Cloud Code answers 404 on every endpoint (2026-10-10), so it is not offered.
         "gemini-3.6-flash": "gemini-3.6-flash-high", "gemini-3.1-pro": "gemini-3.1-pro-high",
         "gemini-3-flash-thinking": "gemini-3-flash", "gemini-pro": "gemini-2.5-pro", "gemini-flash": "gemini-2.5-flash",
         "claude-sonnet": "claude-sonnet-4-6", "claude-opus": "claude-opus-4-6-thinking",
@@ -117,13 +116,22 @@ class Antigravity(Provider):
 
     def _load(self):
         path = self.token_file or token_path()
-        if not path:
-            return None
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            return None
+        if path:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                return None
+        else:
+            # No token file: AGY 1.3 keeps its live login in the macOS Keychain / Windows Credential
+            # Manager. AGY refreshes that itself (see _refresh), so read it fresh each time.
+            from ..accounts import _agy_cli_login
+            try:
+                data = _agy_cli_login()
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                return None
         try:
             cred = _parse(data)
         except (ValueError, TypeError, AttributeError, OverflowError):
@@ -136,7 +144,7 @@ class Antigravity(Provider):
         return cred
 
     def _refresh(self, cred):
-        if cred.get("refresh") and CLIENT_ID and CLIENT_SECRET:  # direct Google OAuth refresh; without creds we fall back to `agy`
+        if cred.get("refresh") and CLIENT_ID and CLIENT_SECRET and cred.get("_path"):  # direct Google OAuth refresh; without creds (or for AGY's keyring login, which AGY owns) we fall back to `agy`
             try:
                 body = urllib.parse.urlencode({"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
                                                "refresh_token": cred["refresh"], "grant_type": "refresh_token"}).encode()
@@ -167,6 +175,28 @@ class Antigravity(Provider):
             except Exception:
                 pass
         return self._load()
+
+    def _rotate_on_quota(self, err, model=None):
+        """AGY's active login hit its quota for this model's family: switch AGY to the next saved account
+        with that quota left. Only for the active login (named accounts are explicit choices).
+        Returns True when a different account is now active."""
+        if self.token_file or err.status != 429:
+            return False
+        from .. import accounts, identity
+        if not accounts.is_quota_exhausted(err.message):
+            return False  # a short burst limit ("Resource has been exhausted"): retry, never switch accounts
+        try:
+            live = accounts._agy_cli_login()
+            email = identity.extract(live)["email"] if live else None
+            new, old = accounts.rotate(accounts.parse_reset(err.message), only_if_email=email,
+                                       family=accounts.model_family(model))
+        except (ValueError, OSError) as e:
+            print("[antigravity] quota reached and no account to rotate to: %s" % e, flush=True)
+            return False
+        if new:
+            print("[antigravity] quota reached on '%s'; switched AGY to '%s'" % (old, new), flush=True)
+        self._cred, self._cred_at = None, 0.0  # re-read the new active login
+        return True
 
     def stream(self, request, model):
         sys_inst, contents = transform_messages(request["messages"])
@@ -202,6 +232,16 @@ class Antigravity(Provider):
         try:
             resp = open_upstream(self, send)
         except UpstreamError as e:
+            rotated = self._rotate_on_quota(e, model)
+            if rotated:
+                try:
+                    resp = open_upstream(self, send)
+                except UpstreamError as e2:
+                    e = e2
+                else:
+                    for ev in events_from_stream(resp):
+                        yield ev
+                    return
             if e.status in (429, 503) and model != FALLBACK_MODEL:  # existing behaviour: transparent quota fallback
                 body["model"] = FALLBACK_MODEL
                 try:

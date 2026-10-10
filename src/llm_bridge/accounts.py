@@ -1,5 +1,9 @@
 """Named Antigravity accounts. Credentials stay local; mutations are atomic."""
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 import base64
 import hashlib
 import json
@@ -15,16 +19,37 @@ from datetime import datetime, timezone
 from . import identity, store
 
 
+def _lock(fd):
+    if fcntl:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return
+    os.lseek(fd, 0, os.SEEK_SET)  # Windows: lock byte 0; LK_LOCK gives up after ~10s, so keep waiting like flock
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            return
+        except OSError:
+            pass
+
+
+def _unlock(fd):
+    if fcntl:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    else:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
 @contextmanager
 def file_lock(path):
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(fd, "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock(lock.fileno())
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            _unlock(lock.fileno())
 
 
 def atomic_json(path, data):
@@ -52,15 +77,53 @@ def _agy_cli_source():
             next((p for p in TOKEN_PATHS if ".gemini/" in p and os.path.isfile(p)), None))
 
 
+def _windows_credential(target):
+    """Blob of a generic credential in Windows Credential Manager, or None if absent."""
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", wintypes.FILETIME),
+                    ("CredentialBlobSize", wintypes.DWORD), ("CredentialBlob", ctypes.POINTER(ctypes.c_char)),
+                    ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
+
+    advapi32 = ctypes.WinDLL("advapi32")
+    advapi32.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                   ctypes.POINTER(ctypes.POINTER(CREDENTIAL))]
+    advapi32.CredReadW.restype = wintypes.BOOL
+    pcred = ctypes.POINTER(CREDENTIAL)()
+    if not advapi32.CredReadW(target, 1, 0, ctypes.byref(pcred)):  # 1 = CRED_TYPE_GENERIC
+        return None
+    try:
+        return ctypes.string_at(pcred.contents.CredentialBlob, pcred.contents.CredentialBlobSize)
+    finally:
+        advapi32.CredFree(pcred)
+
+
+def _keyring_value():
+    """AGY 1.3's go-keyring entry (service "gemini", user "antigravity"), or None.
+    macOS keeps it in the Keychain; Windows in Credential Manager as target "gemini:antigravity"."""
+    if sys.platform == "darwin":
+        result = subprocess.run(
+            ["/usr/bin/security", "find-generic-password", "-s", "gemini",
+             "-a", "antigravity", "-w"], capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() if result.returncode == 0 else None
+    if sys.platform == "win32":
+        blob = _windows_credential("gemini:antigravity")
+        if not blob:
+            return None
+        return (blob.decode("utf-16-le") if b"\x00" in blob else blob.decode("utf-8")).strip()
+    return None
+
+
 def _agy_cli_login():
-    """Read AGY's active login, including 1.3.1's macOS Keychain store."""
-    if sys.platform == "darwin" and not os.environ.get("ANTIGRAVITY_TOKEN_FILE"):
+    """Read AGY's active login, including 1.3's macOS Keychain / Windows Credential Manager store."""
+    if sys.platform in ("darwin", "win32") and not os.environ.get("ANTIGRAVITY_TOKEN_FILE"):
         try:
-            result = subprocess.run(
-                ["/usr/bin/security", "find-generic-password", "-s", "gemini",
-                 "-a", "antigravity", "-w"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                value = result.stdout.strip()
+            value = _keyring_value()
+            if value:
                 if value.startswith("go-keyring-base64:"):
                     value = base64.b64decode(value.split(":", 1)[1], validate=True).decode("utf-8")
                 data = json.loads(value)
@@ -79,9 +142,46 @@ def _agy_cli_login():
     return None
 
 
+def _windows_write_credential(target, user, blob):
+    """Create or replace a generic Windows Credential Manager entry (what go-keyring writes)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", wintypes.FILETIME),
+                    ("CredentialBlobSize", wintypes.DWORD), ("CredentialBlob", ctypes.POINTER(ctypes.c_char)),
+                    ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi32.CredWriteW.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
+    advapi32.CredWriteW.restype = wintypes.BOOL
+    buf = ctypes.create_string_buffer(blob, len(blob))
+    cred = CREDENTIAL(Type=1, TargetName=target, UserName=user, CredentialBlobSize=len(blob),
+                      CredentialBlob=ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)), Persist=2)  # 2 = LOCAL_MACHINE
+    if not advapi32.CredWriteW(ctypes.byref(cred), 0):
+        raise OSError("cannot write the AGY login to Credential Manager (error %d)" % ctypes.get_last_error())
+
+
+def _write_agy_login(raw):
+    """Make `raw` AGY's active login, in the store AGY itself reads. AGY refreshes it on use."""
+    value = json.dumps(raw, separators=(",", ":"))
+    if sys.platform == "win32":
+        _windows_write_credential("gemini:antigravity", "antigravity", value.encode("utf-8"))
+    elif sys.platform == "darwin":  # same mechanism AGY uses; the value is briefly visible in `ps`
+        subprocess.run(["/usr/bin/security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity",
+                        "-w", value], check=True, capture_output=True, timeout=5)
+    else:
+        raise ValueError("switching the active AGY login is supported on Windows and macOS")
+
+
 def token_file(name):
     _validate_name(name)
     return os.path.join(store.DIR, "accounts", name + ".json")
+
+
+CURRENT_CLI = "current-cli"  # the active AGY login, as `accounts list` shows it; not a saved account
 
 
 def _validate_name(name):
@@ -115,6 +215,8 @@ def add(name, source=None, project_id=None, email=None, display_name=None):
     """Snapshot an explicitly supplied token file, or the current AGY login."""
     from .providers.antigravity import PROJECT_ID, _parse
     _validate_name(name)
+    if name == CURRENT_CLI:
+        raise ValueError("'%s' means the active AGY login; choose another name" % CURRENT_CLI)
     # Prefer the actual AGY CLI store over OpenClaw's possibly older copy.
     try:
         if source:
@@ -161,6 +263,8 @@ def add(name, source=None, project_id=None, email=None, display_name=None):
             raise ValueError("this AGY login is already saved as '%s'; sign in to the other Google account first" % duplicate)
         path = token_file(name)
         saved = {"access_token": cred["access"], "refresh_token": cred.get("refresh"), "expiry": expiry}
+        if not source and isinstance(raw.get("token"), dict):
+            saved["agy_login"] = raw  # AGY's own login format, so `accounts switch` can restore it exactly
         # Preserve only identity metadata, never unrelated profiles from an import.
         saved.update({k: v for k, v in details.items() if v})
         atomic_json(path, saved)
@@ -258,7 +362,8 @@ def inventory():
         rows.append({"provider": "antigravity", "name": name, "source": "saved",
                      "email": item.get("email") or details["email"],
                      "display_name": item.get("display_name") or details["display_name"],
-                     "default": data.get("default") == name, "status": _credential_status(cred)})
+                     "default": data.get("default") == name or (not data.get("default") and bool(same)),
+                     "status": _credential_status(cred)})
     for provider, info in cli.items():
         if provider in matched:
             continue
@@ -271,6 +376,10 @@ def inventory():
 def use(name):
     with file_lock(_path() + ".lock"):
         data = load()
+        if name == CURRENT_CLI:  # back to AGY's live login; saved accounts stay usable as @name
+            data["default"] = None
+            atomic_json(_path(), data)
+            return
         if name not in data["accounts"]:
             raise ValueError("no account named '%s'" % name)
         data["default"] = name
@@ -293,3 +402,159 @@ def remove(name):
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+
+
+# --- Switching AGY's active login between saved accounts --------------------------------
+# AGY holds one login at a time. Switching writes a saved account into AGY's own store, where
+# AGY refreshes it itself (no OAuth client settings needed). The outgoing login is always saved
+# first, because refresh tokens can rotate: a stale copy would silently stop working.
+
+QUOTA_DEFAULT_SECONDS = 1800  # when the provider gives no reset time
+
+
+def parse_reset(text):
+    """'... Resets in 155h37m38s.' -> seconds, or None."""
+    m = re.search(r"resets? in\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?", text or "", re.I)
+    if not m or not any(m.groups()):
+        return None
+    d, h, mi, s = (int(g or 0) for g in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
+QUOTA_EXHAUSTED = re.compile(r"quota (?:reached|exceeded)|resets? in\s*\d", re.I)
+
+
+def is_quota_exhausted(message):
+    """True for AGY's account quota ("Individual quota reached ... Resets in 143h15m0s"). Google's generic
+    429 "Resource has been exhausted (e.g. check quota)" is a short burst limit that clears in seconds;
+    rotating on it would bench healthy accounts (seen live 2026-10-10)."""
+    return bool(QUOTA_EXHAUSTED.search(message or ""))
+
+
+def _now():
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _email_of(data, name):
+    return (data["accounts"].get(name) or {}).get("email") or name
+
+
+def _store_live(data, raw):
+    """Save AGY's active login into its saved account (by email, else fingerprint); add one if new.
+    Caller holds the accounts lock. Returns the account name."""
+    from .providers.antigravity import PROJECT_ID, _parse
+    cred = _parse(raw)
+    if not cred.get("access"):
+        raise ValueError("the active AGY login has no access token")
+    details = identity.extract(raw)
+    fingerprint = hashlib.sha256((cred.get("refresh") or cred["access"]).encode()).hexdigest()
+    name = next((n for n, a in data["accounts"].items() if details["email"] and a.get("email") == details["email"]), None)
+    name = name or next((n for n, a in data["accounts"].items() if a.get("fingerprint") == fingerprint), None)
+    if name is None:
+        base = re.sub(r"[^a-zA-Z0-9_-]", "-", (details["email"] or "agy").split("@")[0])[:56].strip("-_") or "agy"
+        name, i = base, 2
+        while name in data["accounts"] or name == CURRENT_CLI:
+            name, i = "%s-%d" % (base, i), i + 1
+        data["accounts"][name] = {"project_id": raw.get("project_id") or PROJECT_ID,
+                                  "created": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    entry = data["accounts"][name]
+    entry["fingerprint"] = fingerprint
+    entry.update({k: v for k, v in details.items() if v})
+    saved = {"access_token": cred["access"], "refresh_token": cred.get("refresh"),
+             "expiry": datetime.fromtimestamp(cred["expires_at"], timezone.utc).isoformat(), "agy_login": raw}
+    saved.update({k: v for k, v in details.items() if v})
+    path = token_file(name)
+    with file_lock(path + ".lock"):
+        atomic_json(path, saved)
+    return name
+
+
+def _login_from_saved(saved):
+    """A saved account in AGY's own login format, with the newest tokens the bridge holds."""
+    login = dict(saved.get("agy_login") or {"auth_method": "consumer"})
+    token = dict(login.get("token") or {"token_type": "Bearer"})
+    token.update({"access_token": saved["access_token"], "refresh_token": saved.get("refresh_token"),
+                  "expiry": saved["expiry"]})
+    login["token"] = token
+    return login
+
+
+def _switch_locked(data, name):
+    path = token_file(name)
+    with file_lock(path + ".lock"):
+        with open(path, encoding="utf-8") as f:
+            saved = json.load(f)
+    if not saved.get("access_token"):
+        raise ValueError("saved account '%s' has no AGY token; sign in and add it again" % name)
+    _write_agy_login(_login_from_saved(saved))
+    data["default"] = None  # unqualified requests follow AGY's active login
+
+
+def switch(name):
+    """Make saved account `name` AGY's active login (saving the outgoing login first)."""
+    with file_lock(_path() + ".lock"):
+        data = load()
+        if name not in data["accounts"]:
+            raise ValueError("no account named '%s'" % name)
+        live = _agy_cli_login()
+        if live:
+            _store_live(data, live)
+        _switch_locked(data, name)
+        atomic_json(_path(), data)
+
+
+def model_family(model):
+    """AGY quota pools: every Gemini model shares one, Claude (Sonnet/Opus) another, GPT-OSS another.
+    Verified live 2026-10-10: an account out of Gemini quota still serves Claude and GPT-OSS."""
+    m = (model or "").lower().split("/")[-1]
+    for family in ("gemini", "claude", "gpt-oss"):
+        if m.startswith(family):
+            return family
+    return m or None
+
+
+def _mark_key(email, family):
+    return "%s|%s" % (email, family) if family else email
+
+
+def _is_marked(marks, email, family):
+    # A bare email marks the whole account (older entries, or a reset with no known model).
+    return email in marks or bool(family) and _mark_key(email, family) in marks
+
+
+def rotate(exhausted_for=None, only_if_email=None, family=None):
+    """The active AGY account is out of quota for `family` (e.g. "gemini"; None = the whole account):
+    mark it until its reset and switch to the next saved account whose quota for that family is not
+    used up. Returns (new_name, previous_name). With only_if_email, does nothing (returns (None, None))
+    when another caller already rotated away from that account."""
+    with file_lock(_path() + ".lock"):
+        data = load()
+        live = _agy_cli_login()
+        current = _store_live(data, live) if live else None
+        if only_if_email and current and _email_of(data, current) != only_if_email:
+            atomic_json(_path(), data)
+            return None, None
+        now = _now()
+        marks = {k: v for k, v in data.get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}
+        if current:
+            marks[_mark_key(_email_of(data, current), family)] = now + (exhausted_for or QUOTA_DEFAULT_SECONDS)
+        data["exhausted"] = marks
+        names = list(data["accounts"])
+        start = names.index(current) + 1 if current in names else 0
+        order = names[start:] + names[:start]
+        target = next((n for n in order if n != current and not _is_marked(marks, _email_of(data, n), family)), None)
+        if target is None:
+            atomic_json(_path(), data)
+            relevant = [v for k, v in marks.items() if not family or "|" not in k or k.endswith("|" + family)]
+            nxt = min(relevant) if relevant else None
+            raise ValueError("every saved AGY account is out of %s quota%s; add another with `accounts add`"
+                             % (family or "its", "" if nxt is None else " (first reset %s UTC)" % datetime.fromtimestamp(nxt, timezone.utc).strftime("%Y-%m-%d %H:%M")))
+        _switch_locked(data, target)
+        atomic_json(_path(), data)
+        return target, current
+
+
+def quota_marks():
+    """{"email|family" or "email": reset epoch} for saved accounts currently marked out of quota."""
+    now = _now()
+    return {k: v for k, v in load().get("exhausted", {}).items() if isinstance(v, (int, float)) and v > now}

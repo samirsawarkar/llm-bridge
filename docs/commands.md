@@ -44,10 +44,31 @@ On macOS, AGY 1.3.1's Keychain login is detected automatically; older token file
 remain supported. Named accounts have no fixed count cap. Account names use
 1–64 letters, digits, underscores or hyphens and must start with a letter/digit.
 
+`accounts use current-cli` goes back to AGY's live login (refreshed by AGY itself, so it never goes stale; on Windows and macOS 1.3 it is read from Credential Manager / Keychain).
 `accounts use work` selects the default for `antigravity/model` and bare Gemini
 names. `antigravity@personal/model` explicitly selects another saved login for
 that request. Account additions and default changes do not require a restart.
-There is no automatic account rotation on quota errors.
+
+## Rotate accounts when one runs out of quota
+
+AGY holds one login at a time. `accounts switch` signs AGY itself in as a saved
+account (it writes the login to AGY's own store, where AGY refreshes it, so no
+OAuth client settings are needed). The outgoing login is saved first, and a
+login that was never saved is added automatically, so switching never loses one.
+
+```bash
+llm-bridge accounts switch personal          # AGY (and the bridge) now use 'personal'
+llm-bridge accounts rotate --reset-in "Resets in 155h37m38s"   # mark the active one, move to the next
+llm-bridge accounts list                     # shows "out of quota until ..." per account
+```
+
+With the default `current-cli`, this happens automatically: when Google answers
+a request with a quota error (429), the bridge marks the active account until
+its reset time and switches AGY to the next saved account that is not out of
+quota, then retries once. AES does the same when `agy` itself reports
+"Individual quota reached". When every saved account is out, the error names
+the first reset time. Save every Google account once (`accounts add`) so the
+rotation has somewhere to go.
 
 ## See account emails and names
 
