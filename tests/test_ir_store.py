@@ -30,7 +30,8 @@ class TestStore(unittest.TestCase):
         self.assertFalse(store.verify_key(k[:-1] + "x"))
         self.assertFalse(store.verify_key(""))
         self.assertEqual(store.mask(k), k[:10] + "…" + k[-2:])
-        self.assertEqual(oct(os.stat(store.KEYS).st_mode & 0o777), "0o600")
+        if os.name != "nt":  # Windows has no POSIX mode bits; files inherit the user-profile ACL
+            self.assertEqual(oct(os.stat(store.KEYS).st_mode & 0o777), "0o600")
         with self.assertRaises(ValueError):
             store.create_key("t1")
         store.revoke_key("t1")
