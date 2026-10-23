@@ -64,6 +64,16 @@ class TestProvider(unittest.TestCase):
             self.assertEqual(body["model"], model)
             self.assertNotIn("generationConfig", body["request"])
 
+    def test_flash_tiers_send_the_tiered_model_with_their_thinking_level(self):
+        p = ag.Antigravity()
+        for model, level in (("gemini-3.8-flash-high", "HIGH"), ("gemini-3.8-flash-medium", "MEDIUM"), ("gemini-3.8-flash-low", "LOW")):
+            self.assertEqual(p.upstream_model(model), model)  # not aliased away: the tier must reach stream()
+            with patch.object(p, "token", return_value="test-token"), patch.object(ag, "http", return_value=iter([])) as send:
+                list(p.stream({"messages": [{"role": "user", "content": "hi"}]}, model))
+            body = send.call_args[0][1]
+            self.assertEqual(body["model"], "gemini-3.8-flash-tiered")
+            self.assertEqual(body["request"]["generationConfig"]["thinkingConfig"], {"thinkingLevel": level, "includeThoughts": True})
+
     def test_aliases_explicit_only(self):
         p = ag.Antigravity()
         self.assertEqual(p.upstream_model("gemini-3.8-flash"), "gemini-3.8-flash-tiered")

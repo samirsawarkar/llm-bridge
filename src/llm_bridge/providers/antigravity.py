@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -106,8 +107,9 @@ class Antigravity(Provider):
         {"id": "gpt-oss-120b-medium", "name": "GPT-OSS 120B"},
     ]
     aliases = {
-        "gemini-3.8-flash": "gemini-3.8-flash-tiered", "gemini-3.8-flash-high": "gemini-3.8-flash-tiered",
-        "gemini-3.8-flash-medium": "gemini-3.8-flash-tiered", "gemini-3.8-flash-low": "gemini-3.8-flash-tiered",
+        "gemini-3.8-flash": "gemini-3.8-flash-tiered",
+        # gemini-3.8-flash-high/-medium/-low are not aliased: stream() sends the tiered model with that
+        # thinkingLevel, as AGY does (an alias would drop the level).
         # Gemini 3.7 Flash: AGY runs it, but Cloud Code answers 404 on every endpoint (2026-10-10), so it is not offered.
         "gemini-3.6-flash": "gemini-3.6-flash-high", "gemini-3.1-pro": "gemini-3.1-pro-high",
         "gemini-3-flash-thinking": "gemini-3-flash", "gemini-pro": "gemini-2.5-pro", "gemini-flash": "gemini-2.5-flash",
@@ -204,7 +206,11 @@ class Antigravity(Provider):
         # The generation endpoint accepts the Pro tier route, not the catalog's
         # high display id. Keep Pro High's advertised 10001-token thinking budget.
         upstream_model = model
-        if model == "gemini-3.1-pro-high":
+        tier = re.fullmatch(r"gemini-3\.8-flash-(high|medium|low)", model)
+        if tier:  # one tiered upstream model; AGY picks the tier with thinkingLevel (verified: LOW ~80, HIGH ~200 thought tokens)
+            upstream_model = "gemini-3.8-flash-tiered"
+            req["generationConfig"] = {"thinkingConfig": {"thinkingLevel": tier.group(1).upper(), "includeThoughts": True}}
+        elif model == "gemini-3.1-pro-high":
             upstream_model = "gemini-3.1-pro-low"
             req["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 10001, "includeThoughts": True}}
         if sys_inst:
